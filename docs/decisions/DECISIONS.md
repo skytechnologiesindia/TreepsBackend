@@ -144,3 +144,5 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: the check exists to tell the developer which controller and handler broke the rule, and its message contains no request data, so it is safe to print.
 70. **The database check message says "could not run a test query ... (unreachable within 5 seconds, or refused the connection)".**
     Reason: one fixed text must be true for both a timeout and a refused login; it holds no value.
+71. **The e2e test (`test/app.e2e-spec.ts`) calls `setupApp`, sets its own dummy `DATABASE_URL` and `NODE_ENV=test` before `AppModule` is imported, and replaces `PrismaService` with an empty stand-in.**
+    Reason: it is the only test that boots the real `AppModule`, so it must test what production serves (the envelope, request id and error format), not the old raw reply; the dummy environment and stand-in stop it depending on a developer's `.env` or touching a database.

@@ -1,6 +1,6 @@
 # Progress Tracker
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 | Stage | What | Status |
 |---|---|---|
@@ -10,7 +10,7 @@ Last updated: 2026-09-29
 | F3.0 | Documentation foundation | Done |
 | F3.1 | Repo hygiene | Done |
 | F3.2 | Response envelope, error-code registry and request id | Done |
-| F3.3 | Input and config validation | In progress |
+| F3.3 | Input and config validation | Done |
 | F3.4 | /v1 versioning only | Not started |
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
@@ -30,7 +30,7 @@ Last updated: 2026-09-29
 - [x] d1. `InputValidationPipe`, `setupApp` registration, HTTP validation tests, banned-patterns test, deliberate contract-test change
 - [x] d2. Startup route input check (`route-inputs.ts`), `main.ts`, real-routes test, DTO initializer check
 - [x] e. Config validation (DATABASE_URL, PORT, NODE_ENV) and startup database check
-- [ ] f. e2e import fix (`test/app.e2e-spec.ts` only)
+- [x] f. e2e import fix, then the e2e boots the real wiring (`test/app.e2e-spec.ts`, `vitest.config.e2e.ts`)
 
 Piece notes:
 - Piece d:
@@ -51,7 +51,6 @@ Piece notes:
 - The contract test that pinned `field` null for pipe errors was changed on purpose in piece d1 (the route now uses a DTO, and the test asserts `field` `'id'` and `details`).
 
 ## Backlog
-- E2E test cannot find `supertest/types` (`test/app.e2e-spec.ts`). Fix in F3.3.
 - Login code uses the removed `prisma.user` (`src/auth/auth.service.ts`). Fix in F4; do not patch before.
 - Mock token security hole in `src/auth/firebase.service.ts`. **Do not deploy before F4.**
 - Open decision for F4: Firebase phone OTP or own OTP with an SMS provider. Must be decided before F4 starts.
@@ -81,4 +80,5 @@ Piece notes:
 - Warn or refuse if `NODE_ENV=test` is used outside a test runner.
 - Startup check that migrations are applied (the database check only proves the database answers).
 - Decide a safe way to log real startup errors for operators before deployment. Today only our three own error types (env, database check, route inputs) print their message; any library error prints only a generic line (decision 68).
+- Decide whether `npm test` should also run the e2e spec when the first real e2e for a real API exists (today `.e2e-spec.ts` runs only through `npm run test:e2e`).
 - End of F3.4: write a one-page request-flow guide in `docs/learning/` (middleware, body parser, routing, guards, interceptor, pipe, handler, filter).
