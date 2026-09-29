@@ -66,18 +66,18 @@ Ranchi bounds, per-tier rates, tax rate, minimum fare, quote lifetime, threshold
 The quote: rider, inputs, derived values, reference-data version and expiry. Fields to snapshot: TO DECIDE. Reason for snapshotting: the fare booked must be the fare shown.
 
 ## Errors
-Every error carries `code`, `message` and `field`. Whether `field` is null or omitted for errors not about one field: TO DECIDE. HTTP statuses, messages and UI reactions below are proposed.
+Every error uses the error envelope in `docs/standards/response-format.md`, with `code`, `message` and `field`. `field` is null when the error is not about one input. HTTP statuses follow that doc's registry. Messages and UI reactions below are proposed.
 
-| Code | HTTP status (proposed) | When it happens | `field` marker | Rider-safe message (proposed) | App UI reaction (proposed) |
+| Code | HTTP status | When it happens | `field` marker | Rider-safe message (proposed) | App UI reaction (proposed) |
 |---|---|---|---|---|---|
 | OUT_OF_SERVICE_AREA | 422 | Pickup or drop is outside Ranchi bounds | pickupLat or dropLat | "We don't serve this area yet." | Highlight the point, ask for another |
 | PICKUP_DROP_TOO_CLOSE | 422 | Distance below the minimum (value TO DECIDE) | dropLat | "Pickup and drop are too close." | Ask for a farther drop |
 | TRIP_TOO_LONG | 422 | Distance above the maximum (value TO DECIDE) | dropLat | "This trip is too long for now." | Ask for a nearer drop |
-| ROUTE_UNAVAILABLE | 503 | Route lookup failed or returned nothing | null | "We couldn't plan this route. Try again." | Show retry |
-| PAYMENT_DUE | 402 | Rider has an unpaid balance | null | "Please clear your pending payment first." | Open the payment screen |
+| ROUTE_UNAVAILABLE | 422 | Route lookup failed or returned nothing | null | "We couldn't plan this route. Try again." | Show retry |
+| PAYMENT_DUE | 403 | Rider has an unpaid balance | null | "Please clear your pending payment first." | Open the payment screen |
 | ACCOUNT_BANNED | 403 | Rider account is banned | null | "This account can't book rides." | Show support contact |
 | RATE_LIMITED | 429 | Too many requests | null | "Too many requests. Try again shortly." | Disable the button briefly |
-| INVALID_INPUT | 400 | Missing, malformed or unknown field | the offending field | "Please check this field." | Highlight the field |
+| INVALID_INPUT | 400 | Missing, malformed or unknown field | the first invalid field (all are listed in `details`) | "Please check this field." | Highlight the field |
 
 ## Rate limit, logging and audit
 Rate limit: TO DECIDE. Log fields: TO DECIDE. Audit events: TO DECIDE.
@@ -104,3 +104,4 @@ Rate limit: TO DECIDE. Log fields: TO DECIDE. Audit events: TO DECIDE.
 |---|---|---|
 | 2026-09-29 | Contract frozen: fields, tiers, breakdown, error codes | Docs-first rule |
 | 2026-09-29 | Status changed from Frozen to Draft | Has open TO DECIDE items that must be resolved before it is frozen |
+| 2026-09-29 | Error statuses aligned with `standards/response-format.md`: ROUTE_UNAVAILABLE 503 to 422, PAYMENT_DUE 402 to 403; `field` is null when not about one input; INVALID_INPUT points at the first invalid field | Error registry decided in F3.2 |

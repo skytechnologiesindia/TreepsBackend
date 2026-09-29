@@ -5,6 +5,7 @@
 | [progress/TRACKER.md](progress/TRACKER.md) | Stages, status, backlog |
 | [decisions/DECISIONS.md](decisions/DECISIONS.md) | Dated decisions with reasons |
 | [standards/api-standard.md](standards/api-standard.md) | Rules every API must follow |
+| [standards/response-format.md](standards/response-format.md) | Success and error envelopes, error-code registry |
 | [templates/api-doc-template.md](templates/api-doc-template.md) | Template for every API doc |
 | [templates/engine-doc-template.md](templates/engine-doc-template.md) | Template for every engine doc |
 | [api/estimate.md](api/estimate.md) | POST /v1/rides/estimate |

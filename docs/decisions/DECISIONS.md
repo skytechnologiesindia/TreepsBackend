@@ -36,3 +36,15 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: it records which skills are installed, so they can be reinstalled.
 16. **`.env.example` was added, and the Firebase variable names are left out until F4 decides the auth flow.**
     Reason: it documents the required variables without secrets. The Firebase variables appear only in commented-out code.
+17. **A valid request that breaks a business rule returns 422; invalid input returns 400.** This covers OUT_OF_SERVICE_AREA, PICKUP_DROP_TOO_CLOSE, TRIP_TOO_LONG and ROUTE_UNAVAILABLE.
+    Reason: 400 means the request itself is malformed and must be corrected; 422 means the request is well formed but a business rule refuses it. Apps and logs can tell the two apart.
+18. **PAYMENT_DUE and ACCOUNT_BANNED return 403.** 503 stays out of the registry until a real case appears (then a SERVICE_UNAVAILABLE row is added first).
+    Reason: 402 is rarely used and handled inconsistently by clients, and the apps branch on the code anyway. PAYMENT_DUE and ACCOUNT_BANNED both mean this account cannot do this right now, so both use 403. 503 is not added until a real case exists.
+19. **INVALID_INPUT carries `error.field` (the first invalid field) and an optional `error.details` list of `{ field, reason }` for every invalid field. `details` is omitted on all other codes.**
+    Reason: The rider UI should highlight every invalid input at once instead of revealing one per retry.
+20. **The error code is the contract; the message is an English fallback that apps may replace with their own localized text keyed on the code.**
+    Reason: riders may read Hindi or English, and wording can change without breaking any app.
+21. **A success with no result returns `data: null`.**
+    Reason: every reply keeps one of the two shapes.
+22. **Request id generation is part of F3.2, not F3.4.**
+    Reason: The envelope carries requestId from the start, so generating it must exist in the same step; otherwise the field would ship empty.

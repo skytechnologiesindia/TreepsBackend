@@ -9,9 +9,9 @@ Last updated: 2026-09-29
 | F3 | Foundations | In progress |
 | F3.0 | Documentation foundation | Done |
 | F3.1 | Repo hygiene | Done |
-| F3.2 | Response envelope and error-code registry | Not started |
+| F3.2 | Response envelope, error-code registry and request id | In progress |
 | F3.3 | Input and config validation | Not started |
-| F3.4 | /v1 prefix and request ID | Not started |
+| F3.4 | /v1 versioning only | Not started |
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
 

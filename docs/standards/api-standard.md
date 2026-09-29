@@ -49,7 +49,7 @@ Every API follows this. Exceptions must be recorded in `DECISIONS.md`.
 - List endpoints are paginated.
 
 ## 6. Ops
-- Log every request with a request id (built in F3.4).
+- Log every request with a request id (built in F3.2).
 - Audit events are recorded for security-relevant and money-relevant actions.
 - Never log secrets or full tokens.
 
