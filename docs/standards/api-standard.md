@@ -13,17 +13,7 @@ Every API follows this. Exceptions must be recorded in `DECISIONS.md`.
 ### Input rules
 - Each API declares its own allowed fields. Unknown fields are rejected.
 - The client never sends derived values (price, distance, ETA, status, earnings).
-- Shared field types:
-
-| Type | Rule |
-|---|---|
-| lat | number, degrees, -90 to 90 (service-area limits are set per API) |
-| lng | number, degrees, -180 to 180 (service-area limits are set per API) |
-| phone | string, E.164 format |
-| money | integer paise |
-| date | string, ISO 8601, UTC |
-| UUID | string, UUID |
-| page | integer, 1 or more; page size maximum: TO DECIDE |
+- The shared field types (lat, lng, phone, money, date, uuid, page, pageSize, text), their exact rules, the reason codes and the startup configuration rules are in `input-validation.md`. That doc is the single source of truth; do not copy its rules here.
 
 ## 2. Logic
 - The server computes all derived values.

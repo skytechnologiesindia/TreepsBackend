@@ -76,3 +76,27 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: it bypasses the envelope.
 36. **The HTTP contract spec builds its list of error codes from `ERROR_REGISTRY`, so every new code is tested over real HTTP automatically.**
     Reason: a registry row cannot be added without its status, message and reply shape being checked end to end.
+37. **`details[].reason` is one of 9 fixed codes (REQUIRED, UNKNOWN_FIELD, WRONG_TYPE, INVALID_FORMAT, OUT_OF_RANGE, NOT_ALLOWED, TOO_SHORT, TOO_LONG, INVALID_VALUE), never library text.**
+    Reason: the apps localize on the codes, and library text can change or reveal internals.
+38. **Unknown fields are rejected in the body, the query and the path, at any depth, including nested objects, list items and unknown query parameters.**
+    Reason: it blocks a client sending a fake price, role or status (extends decision 10 to all three sources).
+39. **No silent type coercion. Primitive-typed `@Param` and `@Query` parameters are banned; path, query and body values are read through DTO objects.**
+    Reason: Nest's ValidationPipe silently converts primitive-typed parameters (`''` becomes 0, `'0x10'` becomes 16, any Boolean that is not `'true'` becomes false), which would let a changed value pass as what the client sent.
+40. **Latitude, longitude and the other shared field types use our own strict validators, not `IsLatitude`, `IsLongitude` or `IsISO8601` directly.**
+    Reason: `IsLatitude` accepts the string "12.5", and `IsISO8601` accepts time-zone offsets and date-only strings (checked against the installed class-validator).
+41. **`details` is sorted A to Z by field name (plain code-unit order). `field` is the first entry of `details` that is not `$unknown`, or null if there is none.**
+    Reason: the same request always gets the same reply, so tests and apps can rely on it. `field` lets the app highlight one input, and `$unknown` is not an input.
+42. **An unknown field name is echoed only if it matches `^[A-Za-z_][A-Za-z0-9_.]{0,63}$`. All other unknown names collapse into ONE entry `{ "field": "$unknown", "reason": "UNKNOWN_FIELD" }`.**
+    Reason: a name chosen by the client must not be reflected into a reply unless it looks like a normal field name.
+43. **`details` holds at most 20 entries, applied after sorting. The request is rejected either way.**
+    Reason: one request must not produce a huge reply.
+44. **NODE_ENV is required at startup, one of development, test or production, with no default.**
+    Reason: a missing value must stop startup instead of silently choosing a mode. The owner adds `NODE_ENV=development` to the local `.env`; the agent never edits `.env`.
+45. **A test scans non-spec files under `src/` for the banned patterns: the built-in `Parse*Pipe`s and named extraction (`@Param('x')`, `@Query('x')`, `@Body('x')`). `src/auth/auth.controller.ts` is allowlisted until F4.**
+    Reason: a rule kept only by review gets forgotten, and named body extraction skips the DTO rules entirely.
+46. **A required field that is missing gives REQUIRED, never WRONG_TYPE. `null` on an optional field is WRONG_TYPE unless the API doc marks the field nullable. `IsOptional` is not used.**
+    Reason: the app must be able to tell "absent" from "wrong type", and `IsOptional` would let `null` pass silently.
+47. **Each API doc resolves the shared-type limits it uses before its code is written.**
+    Reason: the docs-first rule (decision 11); code must not invent limits.
+48. **A body that is missing, empty, an array, `null` or a bare string gives INVALID_INPUT with `field` null and `details` omitted.**
+    Reason: there is no field to point at, so a `details` entry would invent one.

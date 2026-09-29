@@ -10,7 +10,7 @@ Last updated: 2026-09-29
 | F3.0 | Documentation foundation | Done |
 | F3.1 | Repo hygiene | Done |
 | F3.2 | Response envelope, error-code registry and request id | Done |
-| F3.3 | Input and config validation | Not started |
+| F3.3 | Input and config validation | In progress |
 | F3.4 | /v1 versioning only | Not started |
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
@@ -22,6 +22,28 @@ Last updated: 2026-09-29
 - [x] c. Exception filter
 - [x] d. Response interceptor rewrite
 - [x] e. Integrated HTTP tests, then mark F3.2 done
+
+## F3.3 checklist
+- [x] a. Docs (`standards/input-validation.md`, decisions, response-format)
+- [ ] b. INVALID_INPUT wording "Please check your input." (registry, `response-format.md`, `estimate.md`)
+- [ ] c. Building blocks: reason codes, shared field types, pipe error conversion
+- [ ] d. ValidationPipe wiring, contract test change, HTTP validation tests, banned-patterns test
+- [ ] e. Config validation (DATABASE_URL, PORT, NODE_ENV)
+- [ ] f. e2e import fix (`test/app.e2e-spec.ts` only)
+
+Piece notes:
+- Piece e: the owner adds `NODE_ENV=development` to the local `.env` before it runs; the agent never edits `.env`. `.env.example` gets the same line in the same commit.
+- Tests to write (piece c or d):
+  - a missing required field gives REQUIRED;
+  - `null` on an optional field is WRONG_TYPE;
+  - a nested unknown field (`pickup.foo`) is rejected;
+  - odd bodies (none, empty, `[]`, `null`, bare string) give INVALID_INPUT and never crash;
+  - an unknown query parameter is rejected;
+  - the banned-patterns scan (piece d);
+  - class-validator text never appears in a reply;
+  - only `$unknown` invalid gives `field` null, with `details` containing the `$unknown` entry;
+  - `$unknown` plus a real bad field gives `field` = the real field.
+- The contract test that pins `field` null for pipe errors changes on purpose in piece d.
 
 ## Backlog
 - E2E test cannot find `supertest/types` (`test/app.e2e-spec.ts`). Fix in F3.3.
@@ -46,3 +68,6 @@ Last updated: 2026-09-29
 - Pipe errors carry `field` null today (pinned by the contract test in `src/common/contract.http.spec.ts`); F3.3 decides, and that test changes on purpose.
 - If a browser admin panel is ever built, it needs `Access-Control-Expose-Headers: X-Request-Id`.
 - Extract a shared HTTP test helper (app setup, base URL, UUID regex) with no assertion changes and its own commit, after F3.3.
+- Security headers (for example `X-Content-Type-Options: nosniff`) must be added before deployment.
+- `PrismaService` should use the validated config instead of reading `process.env` directly (F4 or F5).
+- `POST /auth/login` reads `@Body('idToken')` and stays unvalidated (unknown body fields not rejected) until F4; its file is on the banned-patterns allowlist until then.
