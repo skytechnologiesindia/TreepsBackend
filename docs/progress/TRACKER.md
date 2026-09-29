@@ -19,7 +19,7 @@ Last updated: 2026-09-29
 - [x] Docs settled (`standards/response-format.md`, `decisions/DECISIONS.md`)
 - [x] a. Request id (middleware and `setupApp` helper)
 - [x] b. Error registry and `AppException`
-- [ ] c. Exception filter
+- [x] c. Exception filter
 - [ ] d. Response interceptor rewrite
 - [ ] e. Integrated HTTP tests, then mark F3.2 done
 
@@ -39,3 +39,6 @@ Last updated: 2026-09-29
 - Project folder is still `XCabServer` on disk (rename: optional, not decided).
 - INVALID_INPUT message says "this field" even when `field` is null; revisit wording in F3.3.
 - Confirm the six estimate error messages (OUT_OF_SERVICE_AREA, PICKUP_DROP_TOO_CLOSE, TRIP_TOO_LONG, ROUTE_UNAVAILABLE, PAYMENT_DUE, ACCOUNT_BANNED) before the estimate API ships.
+- Access log (method, route, status, duration per request) is not built; the exception filter deliberately does not log URLs or methods. Decide what an access log may contain.
+- Decide dedicated codes for 405 and 413; the warning log records `originalStatus` so real cases can be seen.
+- Keep server logs access-controlled: Prisma error text can contain input values.

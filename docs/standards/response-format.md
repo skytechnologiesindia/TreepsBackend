@@ -52,7 +52,8 @@ Every reply uses one of the two shapes above, including errors raised by the fra
 | Any unmapped 5xx error, any unexpected crash, any non-HTTP error | INTERNAL_ERROR, 500, generic message only |
 
 - An unexpected crash never returns a stack trace, an internal message or any detail about the server.
-- The real error is logged on the server. The log entry contains the `requestId`, the error and its stack. It never contains the request body or headers, which can hold phone numbers and tokens.
+- The real error is logged on the server. A 4xx reply is logged as a warning with the `requestId`, the code and the status, without a stack. A 5xx or non-HTTP error is logged as an error with the `requestId`, the error and its stack. The log never contains the request URL, method, body or headers, which can hold phone numbers and tokens.
+- A non-Nest error counts as a 4xx only when its status is 400 to 499 and it has `expose === true` (as body-parser's errors do). Any other non-Nest error, such as an upstream provider's 4xx, stays INTERNAL_ERROR 500 and is logged with its stack.
 - Unmapped errors: any 4xx `HttpException` without its own registry code becomes INVALID_INPUT, 400, with `field` null. Any unmapped 5xx and any non-HTTP error becomes INTERNAL_ERROR, 500, with the generic message only. Both cases are logged with the `requestId`. Why: a client mistake such as an oversized body should not look like a server failure.
 - Dedicated codes for 405 and 413: TO DECIDE.
 
@@ -109,7 +110,7 @@ Where the registry lives in code: `src/common/errors/error-registry.ts`. Control
 9. **HTTP status comes from the registry, not chosen ad hoc.** Why: each status keeps one meaning across all APIs.
 10. **`field` is the request field name as the client sent it, or null; `details` exists only on INVALID_INPUT.** Why: the app can highlight the exact inputs without parsing text, and every other error stays small and predictable.
 11. **Messages never contain internal details or another user's data.** Why: replies reach the rider's phone and any network in between.
-12. **Error logs never contain request bodies or headers.** Why: they can hold phone numbers and tokens.
+12. **Error logs never contain request URLs, methods, bodies or headers.** Why: they can hold phone numbers and tokens.
 
 ## Current code vs this format
 `src/common/interceptors/response.interceptor.ts` returns `{ success, statusCode, message, data, timestamp }` and has no `requestId`. No exception filter exists. F3.2 replaces the interceptor and adds the filter.
@@ -119,3 +120,4 @@ Where the registry lives in code: `src/common/errors/error-registry.ts`. Control
 |---|---|---|
 | 2026-09-29 | Draft created | F3.2 docs-first |
 | 2026-09-29 | Settled request id format, registry location, unmapped-error rule and log content | F3.2 decisions before code |
+| 2026-09-29 | Added the expose rule for non-Nest 4xx errors and the log levels | Exception filter built (piece c) |

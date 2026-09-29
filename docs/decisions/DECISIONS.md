@@ -62,3 +62,9 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: production and tests share identical wiring, so the tests prove what production does.
 29. **The error-registry spec reads the table in `docs/standards/response-format.md` and fails if the code and the doc disagree.**
     Reason: the doc is the contract the apps rely on, so a silent difference between doc and code is a bug.
+30. **One catch-all filter (`AllExceptionsFilter`) builds every error reply from the registry. No framework or error message is ever copied into a reply.**
+    Reason: nothing internal can leak to a rider's phone.
+31. **Log levels: a 4xx reply is logged as a warning with requestId, code and status (and `originalStatus` for an unmapped 4xx), without a stack. A 5xx or non-HTTP error is logged as an error with requestId, the error and its stack. The request URL, method, body and headers are never logged.**
+    Reason: client mistakes do not need stack traces, and real failures do; bodies, headers and URLs can carry phone numbers and tokens (decision 27).
+32. **A non-Nest error is treated as a 4xx only when its `status` (or `statusCode`) is 400 to 499 AND it has `expose === true` (body-parser errors do, for example 413 for an oversized body). Such an error becomes INVALID_INPUT 400. Any other non-Nest error stays INTERNAL_ERROR 500 and is logged as an error with its stack.**
+    Reason: a client mistake such as an oversized body should not look like a server failure (decision 26), but an upstream provider's 4xx must never be shown to a rider as their mistake; it stays a 500 and is logged with its stack.
