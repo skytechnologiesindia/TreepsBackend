@@ -1,0 +1,36 @@
+model Rider {
+  id                String             @id @default(uuid())
+  phoneNumber       String             @unique
+  firstName         String             // Captured right after OTP during registration
+  lastName          String?            // Optional during registration, updated later
+  gender            String?            // Optional collection
+  email             String?            @unique // Optional, updated later
+  dateOfBirth       DateTime?          // Optional, updated later
+  profilePicture    String?            // Optional, updated later
+  isPhoneVerified   Boolean            @default(true)
+  isProfileComplete Boolean            @default(false)
+  createdAt         DateTime           @default(now()) // Member since timestamp
+  updatedAt         DateTime           @updatedAt
+
+  // Relations
+  savedPlaces       SavedPlace[]
+  emergencyContacts EmergencyContact[]
+}
+
+model SavedPlace {
+  id        String   @id @default(uuid())
+  riderId   String
+  rider     Rider    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  title     String   // e.g., "Home", "Work"
+  address   String
+  latitude  Float
+  longitude Float
+}
+
+model EmergencyContact {
+  id        String   @id @default(uuid())
+  riderId   String
+  rider     Rider    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String
+}
