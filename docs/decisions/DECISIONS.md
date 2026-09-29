@@ -74,3 +74,5 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: a 204 cannot carry a body, so the envelope would be lost.
 35. **Controllers never use `@Res()` without the owner's approval.**
     Reason: it bypasses the envelope.
+36. **The HTTP contract spec builds its list of error codes from `ERROR_REGISTRY`, so every new code is tested over real HTTP automatically.**
+    Reason: a registry row cannot be added without its status, message and reply shape being checked end to end.

@@ -9,7 +9,7 @@ Last updated: 2026-09-29
 | F3 | Foundations | In progress |
 | F3.0 | Documentation foundation | Done |
 | F3.1 | Repo hygiene | Done |
-| F3.2 | Response envelope, error-code registry and request id | In progress |
+| F3.2 | Response envelope, error-code registry and request id | Done |
 | F3.3 | Input and config validation | Not started |
 | F3.4 | /v1 versioning only | Not started |
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
@@ -21,7 +21,7 @@ Last updated: 2026-09-29
 - [x] b. Error registry and `AppException`
 - [x] c. Exception filter
 - [x] d. Response interceptor rewrite
-- [ ] e. Integrated HTTP tests, then mark F3.2 done
+- [x] e. Integrated HTTP tests, then mark F3.2 done
 
 ## Backlog
 - E2E test cannot find `supertest/types` (`test/app.e2e-spec.ts`). Fix in F3.3.
@@ -42,3 +42,7 @@ Last updated: 2026-09-29
 - Access log (method, route, status, duration per request) is not built; the exception filter deliberately does not log URLs or methods. Decide what an access log may contain.
 - Decide dedicated codes for 405 and 413; the warning log records `originalStatus` so real cases can be seen.
 - Keep server logs access-controlled: Prisma error text can contain input values.
+- Guards registered through `APP_GUARD` in F4 will not be in `setupApp`; the test modules must import the same guard setup, or the tests will not prove what production does.
+- Pipe errors carry `field` null today (pinned by the contract test in `src/common/contract.http.spec.ts`); F3.3 decides, and that test changes on purpose.
+- If a browser admin panel is ever built, it needs `Access-Control-Expose-Headers: X-Request-Id`.
+- Extract a shared HTTP test helper (app setup, base URL, UUID regex) with no assertion changes and its own commit, after F3.3.

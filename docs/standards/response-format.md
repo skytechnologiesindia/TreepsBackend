@@ -118,7 +118,7 @@ Where the registry lives in code: `src/common/errors/error-registry.ts`. Control
 15. **Controllers never use `@Res()`, and never return a `StreamableFile` or other raw stream, without the owner's approval.** Why: both bypass or break the envelope.
 
 ## Current code vs this format
-The request id middleware, the error registry with `AppException`, the exception filter and the response interceptor are implemented (F3.2 pieces a to d) and registered through `setupApp`. The integrated end-to-end tests (piece e) are still to come.
+F3.2 is done. The request id middleware, the error registry with `AppException`, the exception filter and the response interceptor are implemented and registered through `setupApp`. The HTTP contract tests are in `src/common/contract.http.spec.ts`.
 
 ## Changelog
 | Date | What changed | Why |
@@ -127,3 +127,4 @@ The request id middleware, the error registry with `AppException`, the exception
 | 2026-09-29 | Settled request id format, registry location, unmapped-error rule and log content | F3.2 decisions before code |
 | 2026-09-29 | Added the expose rule for non-Nest 4xx errors and the log levels | Exception filter built (piece c) |
 | 2026-09-29 | Success wrapper rules (always wrap, no 204, no `@Res()`) and current-code section updated | Response interceptor rewritten (piece d) |
+| 2026-09-29 | Current-code section updated: F3.2 done, contract tests added | HTTP contract tests (piece e) |
