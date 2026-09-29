@@ -41,7 +41,7 @@ Every reply from the API, success or error, uses exactly one of two shapes.
 - `details` appears only on INVALID_INPUT. It lists the invalid fields as `{ field, reason }`, sorted A to Z by `field` (plain code-unit order), with at most 20 entries applied after sorting. The request is rejected either way. It is omitted on all other codes.
 - `reason` is a fixed code from `input-validation.md` section 3 (for example WRONG_TYPE or UNKNOWN_FIELD). It is never library text.
 - The name of an unknown field is echoed only if it matches `^[A-Za-z_][A-Za-z0-9_.]{0,63}$`. All other unknown names collapse into ONE entry `{ "field": "$unknown", "reason": "UNKNOWN_FIELD" }`, which sorts first in `details` because `$` comes before letters; `field` skips it.
-- When the whole body is unusable (missing, empty, an array, `null` or a bare string), the reply is INVALID_INPUT with `field` null and `details` omitted, because there is no field to point at.
+- When the whole body is unusable (missing, `null`, an array, or a bare string, number or boolean), the reply is INVALID_INPUT with `field` null and `details` omitted, because there is no field to point at. An empty object `{}` is a normal body and is validated by the DTO.
 
 ## 3. The one-shape rule
 Every reply uses one of the two shapes above, including errors raised by the framework:
@@ -132,3 +132,4 @@ F3.2 is done. The request id middleware, the error registry with `AppException`,
 | 2026-09-29 | Current-code section updated: F3.2 done, contract tests added | HTTP contract tests (piece e) |
 | 2026-09-29 | Resolved `details.reason` (fixed codes), A to Z order, the 20 cap and the `$unknown` entry | F3.3 input validation standard |
 | 2026-09-29 | `field` skips the `$unknown` entry; an unusable body has `field` null and no `details` | Owner decisions before commit |
+| 2026-09-30 | Clarified that `{}` is a normal body; unusable means missing, null, array or a bare string, number or boolean | F3.3 piece c |

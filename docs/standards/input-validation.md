@@ -20,7 +20,7 @@ Every value a client sends is checked before any handler runs. A failed check re
 8. **A client-sent derived value (price, distance, ETA, status, earnings) is an unknown field.** Why: the server computes derived values.
 9. **A required field that is missing gives REQUIRED, never WRONG_TYPE.** The shared required types include `IsDefined`. Why: the app needs to know the field is absent, not that its type is wrong.
 10. **Optional means "may be omitted".** `null` on an optional field is WRONG_TYPE unless the API doc marks the field nullable. `IsOptional` is not used for this, because it also lets `null` through. Why: `null` is a value the client chose to send and must not pass silently.
-11. **A body that is missing, empty, an array, `null` or a bare string gives INVALID_INPUT and never crashes.** `field` is null and `details` is omitted. Why: there is no field to point at, so a `details` entry would invent one; and a malformed request must always get the standard reply.
+11. **A body is unusable only if it is missing, `null`, an array, or a bare string, number or boolean.** An unusable body gives INVALID_INPUT with `field` null and `details` omitted, and never crashes. Why: there is no field to point at, so a `details` entry would invent one; and a malformed request must always get the standard reply. **An empty object `{}` is a normal body** and is validated by the DTO, so the reply lists the missing required fields. Why: `{}` is well formed, and naming the missing fields tells the app more than a blanket error.
 12. **Each API doc resolves the shared-type limits it uses before its code is written.** Every TO DECIDE in section 2 that the API needs (phone countries, money maximum, date range, page maximums, text lengths) is set in that API's doc. Why: the docs-first rule; code must not invent limits.
 
 ## 2. Shared field types
@@ -30,11 +30,11 @@ Every value a client sends is checked before any handler runs. A failed check re
 | lng | JSON number, finite, -180 to 180 inclusive. An API adds its own service-area bounds in its doc. | REQUIRED, WRONG_TYPE, OUT_OF_RANGE | As lat |
 | phone | String in E.164 form: `+` then digits, no spaces or punctuation, not normalized. Allowed countries and length limits: TO DECIDE. | REQUIRED, WRONG_TYPE, INVALID_FORMAT | One canonical form, so the same number always matches the same account |
 | money | JSON integer, in paise, 0 or more. Maximum: TO DECIDE. | REQUIRED, WRONG_TYPE, OUT_OF_RANGE | Integer paise avoids floating point errors (decision 9). Negative amounts are derived values, never client input |
-| date | String in UTC: `YYYY-MM-DDTHH:mm:ss`, optional `.` and 1 to 3 digits, then `Z`. Must be a real calendar date and time. No offsets, no date-only. Earliest and latest allowed values: TO DECIDE. | REQUIRED, WRONG_TYPE, INVALID_FORMAT, OUT_OF_RANGE | UTC only, so the server never guesses a time zone |
+| date | String in UTC: `YYYY-MM-DDTHH:mm:ss`, optional `.` and 1 to 3 digits, then `Z`. Must be a real calendar date and time. No offsets, no date-only. Years 0000 to 0099 are not accepted (JavaScript reads them as 1900 to 1999, so they cannot round-trip). Earliest and latest allowed values: TO DECIDE, set per API as functions. | REQUIRED, WRONG_TYPE, INVALID_FORMAT, OUT_OF_RANGE | UTC only, so the server never guesses a time zone |
 | uuid | String in UUID form. Versions accepted (any version, or v4 only): TO DECIDE. | REQUIRED, WRONG_TYPE, INVALID_FORMAT | Ids are UUIDs |
 | page | JSON integer or converted query value, 1 or more. Maximum page and default when omitted: TO DECIDE. | REQUIRED, WRONG_TYPE, OUT_OF_RANGE | Lists are paginated |
 | pageSize | Integer, 1 or more, at most the maximum. Maximum and default: TO DECIDE. | REQUIRED, WRONG_TYPE, OUT_OF_RANGE | A cap keeps one request from reading a whole table |
-| text | String with a minimum and maximum length set per field. Default maximum: TO DECIDE. No trimming. | REQUIRED, WRONG_TYPE, TOO_SHORT, TOO_LONG | Length limits bound storage and reply size |
+| text | String with a minimum and maximum length set per field in the API doc (no default), counted in Unicode code points (an emoji counts as 1). The character U+0000 is rejected. No trimming. | REQUIRED, WRONG_TYPE, INVALID_FORMAT, TOO_SHORT, TOO_LONG | Code points match how users and Postgres count characters; Postgres cannot store U+0000 in text, so it is refused before it becomes a 500. Length limits bound storage and reply size |
 
 A number that is not an integer where an integer is required counts as WRONG_TYPE.
 
@@ -87,3 +87,4 @@ Nest drops prototype keys (such as `__proto__`) from a request before validation
 |---|---|---|
 | 2026-09-29 | Draft created | F3.3 docs-first |
 | 2026-09-29 | `field` skips the `$unknown` entry; an unusable body has `field` null and no `details` | Owner decisions before commit |
+| 2026-09-30 | Text counts code points and rejects U+0000; years 0000 to 0099 rejected; `{}` is a normal body | F3.3 piece c (validation building blocks) |

@@ -100,3 +100,19 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: the docs-first rule (decision 11); code must not invent limits.
 48. **A body that is missing, empty, an array, `null` or a bare string gives INVALID_INPUT with `field` null and `details` omitted.**
     Reason: there is no field to point at, so a `details` entry would invent one.
+49. **Shared field types return a `FieldType` and become decorators only through `Required(...)` or `Optional(...)`. A property with neither is rejected as unknown.**
+    Reason: `IsDefined` must be in required fields and absent from optional ones, and a field can then never forget to say which it is.
+50. **Every shared-type limit that is TO DECIDE (money maximum, phone digit counts, page maximums, date range, text lengths, UUID versions) is a required parameter with no default.**
+    Reason: code must not invent limits (decision 47); forgetting one is a compile error.
+51. **Text length is counted in Unicode code points, so an emoji counts as 1.**
+    Reason: it matches how users and Postgres count characters.
+52. **The character U+0000 is rejected in text with INVALID_FORMAT.**
+    Reason: Postgres cannot store it in text, and it would otherwise become a 500.
+53. **`UtcDate` limits are functions (`min: () => Date`, `max: () => Date`), functions only.**
+    Reason: relative ranges (for example "not in the past") can be expressed as well as fixed ones.
+54. **Shared-type limit functions are checked once at definition time (both are functions, both return a valid Date, min is not after max), and a broken limit throws a `RangeError` naming the problem without printing any value.**
+    Reason: a broken limit stops the server at startup instead of failing during a request.
+55. **Clarifies decision 48: a body is unusable only if it is missing, `null`, an array, or a bare string, number or boolean. An empty object `{}` is a normal body and is validated by the DTO.**
+    Reason: `{}` is well formed, and naming the missing required fields tells the app more than a blanket error.
+56. **UTC dates with years 0000 to 0099 are rejected with INVALID_FORMAT.**
+    Reason: JavaScript's `Date.UTC` reads those years as 1900 to 1999, so the value cannot round-trip; no real request is dated then, so refusing them costs nothing.

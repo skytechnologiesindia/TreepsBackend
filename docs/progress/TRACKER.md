@@ -26,18 +26,22 @@ Last updated: 2026-09-29
 ## F3.3 checklist
 - [x] a. Docs (`standards/input-validation.md`, decisions, response-format)
 - [x] b. INVALID_INPUT wording "Please check your input." (registry, `response-format.md`, `estimate.md`)
-- [ ] c. Building blocks: reason codes, shared field types, pipe error conversion
+- [x] c. Building blocks: reason codes, shared field types, pipe error conversion
 - [ ] d. ValidationPipe wiring, contract test change, HTTP validation tests, banned-patterns test
 - [ ] e. Config validation (DATABASE_URL, PORT, NODE_ENV)
 - [ ] f. e2e import fix (`test/app.e2e-spec.ts` only)
 
 Piece notes:
+- Piece d:
+  - verify decorator metadata is emitted under Vitest, and add a canary test proving a DTO route rejects bad input;
+  - a route typed with an inline type or interface has no class for the pipe, so plan a fail-closed rule;
+  - rule 11 subclass: a `ValidationPipe` subclass that treats a missing, `null`, array, or bare string, number or boolean body as unusable (Nest turns `null` and a missing body into `{}` before validating, so the converter alone cannot do it).
 - Piece e: the owner adds `NODE_ENV=development` to the local `.env` before it runs; the agent never edits `.env`. `.env.example` gets the same line in the same commit.
 - Tests to write (piece c or d):
   - a missing required field gives REQUIRED;
   - `null` on an optional field is WRONG_TYPE;
   - a nested unknown field (`pickup.foo`) is rejected;
-  - odd bodies (none, empty, `[]`, `null`, bare string) give INVALID_INPUT and never crash;
+  - odd bodies (none, `null`, `[]`, bare string, number, boolean) give INVALID_INPUT with `field` null and no `details`, and never crash; an empty object `{}` is validated by the DTO;
   - an unknown query parameter is rejected;
   - the banned-patterns scan (piece d);
   - class-validator text never appears in a reply;
