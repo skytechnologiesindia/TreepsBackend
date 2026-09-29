@@ -58,3 +58,5 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: a client mistake such as an oversized body should not look like a server failure.
 27. **Error logs contain the requestId, the error and its stack, and never request bodies or headers.**
     Reason: bodies and headers carry phone numbers and tokens.
+28. **`setupApp(app)` (`src/common/setup-app.ts`) is the single place that registers global middleware, interceptors, filters and, later, pipes. `main.ts` and the tests both call it. F3.3 and F3.4 will add to it.**
+    Reason: production and tests share identical wiring, so the tests prove what production does.

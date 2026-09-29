@@ -17,7 +17,7 @@ Last updated: 2026-09-29
 
 ## F3.2 checklist
 - [x] Docs settled (`standards/response-format.md`, `decisions/DECISIONS.md`)
-- [ ] a. Request id (middleware and `setupApp` helper)
+- [x] a. Request id (middleware and `setupApp` helper)
 - [ ] b. Error registry and `AppException`
 - [ ] c. Exception filter
 - [ ] d. Response interceptor rewrite
