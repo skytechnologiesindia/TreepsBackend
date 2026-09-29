@@ -27,7 +27,8 @@ Last updated: 2026-09-29
 - [x] a. Docs (`standards/input-validation.md`, decisions, response-format)
 - [x] b. INVALID_INPUT wording "Please check your input." (registry, `response-format.md`, `estimate.md`)
 - [x] c. Building blocks: reason codes, shared field types, pipe error conversion
-- [ ] d. ValidationPipe wiring, contract test change, HTTP validation tests, banned-patterns test
+- [x] d1. `InputValidationPipe`, `setupApp` registration, HTTP validation tests, banned-patterns test, deliberate contract-test change
+- [ ] d2. Startup route input check (`route-inputs.ts`), `main.ts`, real-routes test, DTO initializer check
 - [ ] e. Config validation (DATABASE_URL, PORT, NODE_ENV)
 - [ ] f. e2e import fix (`test/app.e2e-spec.ts` only)
 
@@ -47,7 +48,7 @@ Piece notes:
   - class-validator text never appears in a reply;
   - only `$unknown` invalid gives `field` null, with `details` containing the `$unknown` entry;
   - `$unknown` plus a real bad field gives `field` = the real field.
-- The contract test that pins `field` null for pipe errors changes on purpose in piece d.
+- The contract test that pinned `field` null for pipe errors was changed on purpose in piece d1 (the route now uses a DTO, and the test asserts `field` `'id'` and `details`).
 
 ## Backlog
 - E2E test cannot find `supertest/types` (`test/app.e2e-spec.ts`). Fix in F3.3.
@@ -74,3 +75,7 @@ Piece notes:
 - Security headers (for example `X-Content-Type-Options: nosniff`) must be added before deployment.
 - `PrismaService` should use the validated config instead of reading `process.env` directly (F4 or F5).
 - `POST /auth/login` reads `@Body('idToken')` and stays unvalidated (unknown body fields not rejected) until F4; its file is on the banned-patterns allowlist until then.
+- Restrict request bodies to `application/json` before F5 (Nest also accepts `application/x-www-form-urlencoded`, which turns `b[c]=2` into a nested object).
+- The DTO initializer check (d2) covers top-level route DTOs only, not nested DTO classes.
+- The route input check (d2) does not cover file uploads or dynamically added routes.
+- Remove both auth allowlist entries in F4: the banned-patterns allowlist and, once d2 exists, `ROUTE_INPUT_ALLOWLIST` (search for `remove in F4`).

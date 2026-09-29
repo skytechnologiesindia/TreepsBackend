@@ -13,7 +13,7 @@ Every value a client sends is checked before any handler runs. A failed check re
    - the built-in `Parse*Pipe`s: `ParseIntPipe`, `ParseFloatPipe`, `ParseBoolPipe`, `ParseArrayPipe`, `ParseUUIDPipe`, `ParseEnumPipe`;
    - named extraction: `@Param('x')`, `@Query('x')`, `@Body('x')`.
 
-   A test (added in F3.3 piece d) scans for them. `src/auth/auth.controller.ts` is on an allowlist marked "remove in F4".
+   A test (`src/common/validation/banned-patterns.spec.ts`) scans for them. `src/auth/auth.controller.ts` is on an allowlist marked "remove in F4".
    Why: Nest silently converts primitive-typed parameters (`''` becomes 0, `'0x10'` becomes 16, any Boolean that is not `'true'` becomes false), the built-in pipes cannot name the failing field, and a named body value skips the DTO rules entirely.
 6. **The shared field types in section 2 are the only way to declare these fields.** The general-purpose validators `IsLatitude`, `IsLongitude`, `IsNumberString` and `IsISO8601` are not used directly. Why: `IsLatitude` accepts the string "12.5" and `IsISO8601` accepts time-zone offsets and date-only strings, which the rules below forbid.
 7. **The reply never contains library text or the submitted value.** Each invalid field gets one fixed reason code (section 3). Why: library messages can change or reveal internals, and submitted values can be phone numbers or tokens.
@@ -22,6 +22,7 @@ Every value a client sends is checked before any handler runs. A failed check re
 10. **Optional means "may be omitted".** `null` on an optional field is WRONG_TYPE unless the API doc marks the field nullable. `IsOptional` is not used for this, because it also lets `null` through. Why: `null` is a value the client chose to send and must not pass silently.
 11. **A body is unusable only if it is missing, `null`, an array, or a bare string, number or boolean.** An unusable body gives INVALID_INPUT with `field` null and `details` omitted, and never crashes. Why: there is no field to point at, so a `details` entry would invent one; and a malformed request must always get the standard reply. **An empty object `{}` is a normal body** and is validated by the DTO, so the reply lists the missing required fields. Why: `{}` is well formed, and naming the missing fields tells the app more than a blanket error.
 12. **Each API doc resolves the shared-type limits it uses before its code is written.** Every TO DECIDE in section 2 that the API needs (phone countries, money maximum, date range, page maximums, text lengths) is set in that API's doc. Why: the docs-first rule; code must not invent limits.
+13. **Raw request access is banned in non-spec files under `src/`: `@Req()`, `@Request()`, `@Res()`, `@Response()` and `@Headers()`.** The same test scans for them, and the same allowlist applies (`src/auth/auth.controller.ts`, "remove in F4"). The authenticated user will come from a guard plus a custom parameter decorator, decided in F4. Why: `@Req()`, `@Request()` and `@Headers()` hand out raw input that bypasses the DTO, and `@Res()` and `@Response()` bypass the response envelope (decision 35).
 
 ## 2. Shared field types
 | Type | Rule | Reason on failure | Why |
@@ -88,3 +89,4 @@ Nest drops prototype keys (such as `__proto__`) from a request before validation
 | 2026-09-29 | Draft created | F3.3 docs-first |
 | 2026-09-29 | `field` skips the `$unknown` entry; an unusable body has `field` null and no `details` | Owner decisions before commit |
 | 2026-09-30 | Text counts code points and rejects U+0000; years 0000 to 0099 rejected; `{}` is a normal body | F3.3 piece c (validation building blocks) |
+| 2026-09-30 | Raw request access banned (rule 13); banned-patterns test named in rule 5 | F3.3 piece d1 (input validation pipe) |

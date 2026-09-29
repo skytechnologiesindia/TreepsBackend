@@ -116,3 +116,9 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: `{}` is well formed, and naming the missing required fields tells the app more than a blanket error.
 56. **UTC dates with years 0000 to 0099 are rejected with INVALID_FORMAT.**
     Reason: JavaScript's `Date.UTC` reads those years as 1900 to 1999, so the value cannot round-trip; no real request is dated then, so refusing them costs nothing.
+57. **The global pipe is `InputValidationPipe`: transform, whitelist, forbidNonWhitelisted, forbidUnknownValues, no implicit conversion, `validationError` target and value off, errors built by `toAppException`.**
+    Reason: unknown fields are rejected (decisions 38, 39), nothing is converted silently, and errors can never carry the submitted value or library text (decisions 27, 37).
+58. **The pipe refuses a missing, null, array or bare-value body as INVALID_INPUT with `field` null and no `details`. An empty object `{}` is validated normally.**
+    Reason: Nest turns a missing body into `{}` and would report every required field as missing; JSON null and bare values are already refused by the body parser as malformed JSON, but a missing body, `text/plain` and `[]` reach the pipe (verified by running).
+59. **Raw request access (`@Req()`, `@Request()`, `@Res()`, `@Response()`, `@Headers()`) is banned in non-spec files under `src/`, enforced by the banned-patterns test with a one-entry allowlist (`src/auth/auth.controller.ts`, "remove in F4"). The authenticated user will come from a guard plus a custom parameter decorator, decided in F4.**
+    Reason: `@Req()`, `@Request()` and `@Headers()` hand out raw input that bypasses the DTO, and `@Res()` and `@Response()` bypass the response envelope.

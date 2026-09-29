@@ -5,7 +5,6 @@ import {
   Injectable,
   Logger,
   Param,
-  ParseIntPipe,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +14,12 @@ import type { AddressInfo } from 'node:net';
 import { AppException } from './errors/app.exception.js';
 import { ERROR_REGISTRY, type ErrorCode } from './errors/error-registry.js';
 import { setupApp } from './setup-app.js';
+import { Page, Required, ToInt } from './validation/fields.js';
+
+// Test-local DTO: the limit is a test value, not a project default.
+class IdParams {
+  @ToInt() @Required(Page({ max: 1_000_000 })) id!: number;
+}
 
 const UUID_V4 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -74,8 +79,8 @@ class ContractController {
   }
 
   @Get('int/:id')
-  int(@Param('id', ParseIntPipe) id: number) {
-    return { id };
+  int(@Param() params: IdParams) {
+    return { id: params.id };
   }
 
   @Get('boom')
@@ -166,18 +171,18 @@ describe('HTTP contract for the response standard', () => {
   });
 
   describe('errors thrown by a real Pipe', () => {
-    it('turns a ParseIntPipe failure into INVALID_INPUT 400 and never wraps it as success', async () => {
+    it('turns a DTO pipe failure into INVALID_INPUT 400 and never wraps it as success', async () => {
       const { res, body } = await get('/int/abc');
       expect(res.status).toBe(400);
       expectErrorEnvelope(body);
       expect(body.error.code).toBe('INVALID_INPUT');
       expect(body.error.message).toBe(ERROR_REGISTRY.INVALID_INPUT.message);
-      // field is null for pipe errors today; F3.3 decides whether pipe errors carry a
-      // field, and this assertion will change on purpose
-      expect(body.error.field).toBeNull();
+      expect(body.error.field).toBe('id');
+      expect(body.error.details).toEqual([{ field: 'id', reason: 'WRONG_TYPE' }]);
       const raw = JSON.stringify(body);
       expect(raw).not.toContain('Validation failed');
       expect(raw).not.toContain('numeric string');
+      expect(raw).not.toContain('must be an integer');
     });
 
     it('lets a valid param through the same pipe (sanity check)', async () => {
