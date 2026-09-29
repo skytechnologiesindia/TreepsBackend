@@ -25,7 +25,7 @@ Last updated: 2026-09-29
 
 ## F3.3 checklist
 - [x] a. Docs (`standards/input-validation.md`, decisions, response-format)
-- [ ] b. INVALID_INPUT wording "Please check your input." (registry, `response-format.md`, `estimate.md`)
+- [x] b. INVALID_INPUT wording "Please check your input." (registry, `response-format.md`, `estimate.md`)
 - [ ] c. Building blocks: reason codes, shared field types, pipe error conversion
 - [ ] d. ValidationPipe wiring, contract test change, HTTP validation tests, banned-patterns test
 - [ ] e. Config validation (DATABASE_URL, PORT, NODE_ENV)
@@ -59,7 +59,6 @@ Piece notes:
 - When code reads a new env variable, `.env.example` changes in the same commit.
 - The `.claude` and `.windsurf` skill symlinks use absolute paths and break when the project folder is renamed. Reinstall the skills afterwards.
 - Project folder is still `XCabServer` on disk (rename: optional, not decided).
-- INVALID_INPUT message says "this field" even when `field` is null; revisit wording in F3.3.
 - Confirm the six estimate error messages (OUT_OF_SERVICE_AREA, PICKUP_DROP_TOO_CLOSE, TRIP_TOO_LONG, ROUTE_UNAVAILABLE, PAYMENT_DUE, ACCOUNT_BANNED) before the estimate API ships.
 - Access log (method, route, status, duration per request) is not built; the exception filter deliberately does not log URLs or methods. Decide what an access log may contain.
 - Decide dedicated codes for 405 and 413; the warning log records `originalStatus` so real cases can be seen.

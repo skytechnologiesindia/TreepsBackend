@@ -1,5 +1,5 @@
 export const ERROR_REGISTRY = {
-  INVALID_INPUT: { status: 400, message: 'Please check this field.' },
+  INVALID_INPUT: { status: 400, message: 'Please check your input.' },
   UNAUTHORIZED: { status: 401, message: 'Please log in again.' },
   FORBIDDEN: { status: 403, message: "You don't have access to this." },
   NOT_FOUND: { status: 404, message: "We couldn't find that." },

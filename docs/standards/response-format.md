@@ -25,7 +25,7 @@ Every reply from the API, success or error, uses exactly one of two shapes.
   "success": false,
   "error": {
     "code": "INVALID_INPUT",
-    "message": "Please check this field.",
+    "message": "Please check your input.",
     "field": "dropLat",
     "details": [
       { "field": "dropLat", "reason": "OUT_OF_RANGE" },
@@ -80,7 +80,7 @@ Messages for the estimate codes are copied from `docs/api/estimate.md`, where th
 
 | Code | HTTP status | Rider-safe message (English fallback) | `field` |
 |---|---|---|---|
-| INVALID_INPUT | 400 | "Please check this field." | The first invalid request field (all are in `details`) |
+| INVALID_INPUT | 400 | "Please check your input." | The first invalid request field (all are in `details`) |
 | UNAUTHORIZED | 401 | "Please log in again." | null |
 | FORBIDDEN | 403 | "You don't have access to this." | null |
 | NOT_FOUND | 404 | "We couldn't find that." | null |

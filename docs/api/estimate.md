@@ -77,7 +77,7 @@ Every error uses the error envelope in `docs/standards/response-format.md`, with
 | PAYMENT_DUE | 403 | Rider has an unpaid balance | null | "Please clear your pending payment first." | Open the payment screen |
 | ACCOUNT_BANNED | 403 | Rider account is banned | null | "This account can't book rides." | Show support contact |
 | RATE_LIMITED | 429 | Too many requests | null | "Too many requests. Try again shortly." | Disable the button briefly |
-| INVALID_INPUT | 400 | Missing, malformed or unknown field | the first invalid field (all are listed in `details`) | "Please check this field." | Highlight the field |
+| INVALID_INPUT | 400 | Missing, malformed or unknown field | the first invalid field (all are listed in `details`) | "Please check your input." | Highlight the field |
 
 ## Rate limit, logging and audit
 Rate limit: TO DECIDE. Log fields: TO DECIDE. Audit events: TO DECIDE.
