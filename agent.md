@@ -1,7 +1,7 @@
-# XCab Backend Agent Instruction & Guidelines
+# SkyRides Backend Agent Instruction & Guidelines
 
 ## 1. Project Overview & Architecture
-- **Project Name:** XCab MVP Backend
+- **Project Name:** SkyRides MVP Backend
 - **Architecture:** Modular Monolith (Node.js / NestJS with TypeScript) inside a single unified repository/server.
 - **Core Principle:** Clean separation of concerns (Modules, Controllers, Services, DTOs). Every business domain lives in its own isolated module under `src/modules/`.
 
