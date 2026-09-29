@@ -1,6 +1,6 @@
 # POST /v1/rides/estimate
 
-Status: Frozen (contract frozen, not yet implemented)
+Status: Draft (open TO DECIDE items; not yet implemented)
 
 ## Purpose
 A rider chooses a pickup and a drop. This API returns, for each tier, whether it is available, the pickup ETA and the exact fare, plus a quote id the rider can later book against. It lets the rider see the price before requesting a ride.
@@ -103,3 +103,4 @@ Rate limit: TO DECIDE. Log fields: TO DECIDE. Audit events: TO DECIDE.
 | Date | What changed | Why |
 |---|---|---|
 | 2026-09-29 | Contract frozen: fields, tiers, breakdown, error codes | Docs-first rule |
+| 2026-09-29 | Status changed from Frozen to Draft | Has open TO DECIDE items that must be resolved before it is frozen |
