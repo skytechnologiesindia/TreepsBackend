@@ -26,3 +26,9 @@ Thumbs.db
 # Editor / IDE
 .idea/
 .vscode/
+
+# AI agent tool folders (local tooling, not part of the app)
+/.agents/
+/.windsurf/
+/.claude/skills/
+/.claude/settings.local.json
