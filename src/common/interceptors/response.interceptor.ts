@@ -1,35 +1,24 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Injectable } from '@nestjs/common';
+import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import type { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { ensureRequestId } from '../request-id/request-id.middleware.js';
 
-export interface Response<T> {
-  success: boolean;
-  statusCode: number;
-  message: string;
-  data: T;
-  timestamp: string;
+export interface SuccessEnvelope<T> {
+  success: true;
+  data: T | null;
+  requestId: string;
 }
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
-    const ctx = context.switchToHttp();
-    const response = ctx.getResponse();
-    const statusCode = response.statusCode;
+export class ResponseInterceptor<T> implements NestInterceptor<T, SuccessEnvelope<T>> {
+  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<SuccessEnvelope<T>> {
+    const http = context.switchToHttp();
+    const requestId = ensureRequestId(http.getRequest<Request>(), http.getResponse<Response>());
 
     return next.handle().pipe(
-      map((data) => ({
-        success: true,
-        statusCode,
-        message: data?.message || 'Request processed successfully',
-        data: data?.data !== undefined ? data.data : data,
-        timestamp: new Date().toISOString(),
-      })),
+      map((data) => ({ success: true as const, data: data ?? null, requestId })),
     );
   }
 }

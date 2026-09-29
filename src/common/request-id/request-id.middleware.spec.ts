@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import {
   REQUEST_ID_HEADER,
+  ensureRequestId,
   getRequestId,
   requestIdMiddleware,
 } from './request-id.middleware.js';
@@ -46,5 +47,41 @@ describe('requestIdMiddleware', () => {
   it('calls next() exactly once so the request continues', () => {
     const { next } = run();
     expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ensureRequestId', () => {
+  function fake(reqProps: Record<string, unknown> = {}) {
+    const headers: Record<string, string> = {};
+    const req = { ...reqProps } as unknown as Request;
+    const res = {
+      headersSent: false,
+      setHeader: (name: string, value: string) => {
+        headers[name.toLowerCase()] = value;
+      },
+    } as unknown as Response;
+    return { req, res, headers };
+  }
+
+  it('returns an existing id and leaves the header alone', () => {
+    const { req, res, headers } = fake({ requestId: 'already-set' });
+    expect(ensureRequestId(req, res)).toBe('already-set');
+    expect(headers['x-request-id']).toBeUndefined();
+  });
+
+  it('generates a UUID v4, stores it and sets the header when there is none', () => {
+    const { req, res, headers } = fake();
+    const id = ensureRequestId(req, res);
+    expect(id).toMatch(UUID_V4);
+    expect(getRequestId(req)).toBe(id);
+    expect(headers['x-request-id']).toBe(id);
+  });
+
+  it('is not what the middleware uses: the middleware still replaces an id already on the request', () => {
+    const req = { headers: {}, requestId: 'stale' } as unknown as Request;
+    const res = { setHeader: () => undefined } as unknown as Response;
+    requestIdMiddleware(req, res, vi.fn() as unknown as NextFunction);
+    expect(getRequestId(req)).not.toBe('stale');
+    expect(getRequestId(req)).toMatch(UUID_V4);
   });
 });

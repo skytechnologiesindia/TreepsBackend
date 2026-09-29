@@ -28,3 +28,4 @@ Docs start at `docs/README.md`. Progress: `docs/progress/TRACKER.md`. Decisions:
 ## Conventions
 11. Money is integer paise. Timestamps are UTC. Ids are UUIDs. Fields are camelCase. Enum values are UPPERCASE. API paths include `/v1`.
 12. The client never sends derived values (price, distance, ETA, status, earnings). The server computes them.
+13. Controllers never use `@Res()`, and never return a `StreamableFile` or other raw stream, without the owner's approval; both bypass or break the response envelope.

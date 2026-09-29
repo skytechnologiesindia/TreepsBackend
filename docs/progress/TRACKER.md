@@ -20,7 +20,7 @@ Last updated: 2026-09-29
 - [x] a. Request id (middleware and `setupApp` helper)
 - [x] b. Error registry and `AppException`
 - [x] c. Exception filter
-- [ ] d. Response interceptor rewrite
+- [x] d. Response interceptor rewrite
 - [ ] e. Integrated HTTP tests, then mark F3.2 done
 
 ## Backlog

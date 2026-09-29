@@ -68,3 +68,9 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: client mistakes do not need stack traces, and real failures do; bodies, headers and URLs can carry phone numbers and tokens (decision 27).
 32. **A non-Nest error is treated as a 4xx only when its `status` (or `statusCode`) is 400 to 499 AND it has `expose === true` (body-parser errors do, for example 413 for an oversized body). Such an error becomes INVALID_INPUT 400. Any other non-Nest error stays INTERNAL_ERROR 500 and is logged as an error with its stack.**
     Reason: a client mistake such as an oversized body should not look like a server failure (decision 26), but an upstream provider's 4xx must never be shown to a rider as their mistake; it stays a 500 and is logged with its stack.
+33. **The response interceptor always wraps what a handler returns as `{ success: true, data, requestId }`. It never unwraps or reads the returned value. `undefined` becomes `data: null`.**
+    Reason: the shape of a reply must never depend on what a handler happens to return (the old code unwrapped `data.data` and read `data.message`).
+34. **No 204 responses: an API with nothing to return replies 200 with `data: null`.**
+    Reason: a 204 cannot carry a body, so the envelope would be lost.
+35. **Controllers never use `@Res()` without the owner's approval.**
+    Reason: it bypasses the envelope.

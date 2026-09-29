@@ -13,7 +13,9 @@ Every reply from the API, success or error, uses exactly one of two shapes.
 }
 ```
 - `data` holds the API's result. The shape of `data` is documented in each API doc.
-- A success with no result returns `"data": null`.
+- The handler's return value is wrapped as is. The wrapper never unwraps or reads it, so a handler that returns `{ "data": ..., "message": ... }` gets that whole object under `data`.
+- A success with no result (`undefined`) returns `"data": null`. Every other value (object, array, string, number, boolean, null) goes into `data` unchanged.
+- The wrapper never changes the HTTP status. It is Nest's default (200, or 201 for POST) unless the API doc sets another. 204 is not used; an API with nothing to return replies 200 with `data: null`.
 - List results and pagination: where the page information goes is TO DECIDE.
 - The success HTTP status (200, 201) is documented per API.
 
@@ -111,9 +113,12 @@ Where the registry lives in code: `src/common/errors/error-registry.ts`. Control
 10. **`field` is the request field name as the client sent it, or null; `details` exists only on INVALID_INPUT.** Why: the app can highlight the exact inputs without parsing text, and every other error stays small and predictable.
 11. **Messages never contain internal details or another user's data.** Why: replies reach the rider's phone and any network in between.
 12. **Error logs never contain request URLs, methods, bodies or headers.** Why: they can hold phone numbers and tokens.
+13. **The success wrapper always wraps what a handler returns and never unwraps or reads it.** Why: the shape of a reply must never depend on what a handler happens to return.
+14. **No 204 responses; an API with nothing to return replies 200 with `data: null`.** Why: a 204 cannot carry a body, so the envelope would be lost.
+15. **Controllers never use `@Res()`, and never return a `StreamableFile` or other raw stream, without the owner's approval.** Why: both bypass or break the envelope.
 
 ## Current code vs this format
-`src/common/interceptors/response.interceptor.ts` returns `{ success, statusCode, message, data, timestamp }` and has no `requestId`. No exception filter exists. F3.2 replaces the interceptor and adds the filter.
+The request id middleware, the error registry with `AppException`, the exception filter and the response interceptor are implemented (F3.2 pieces a to d) and registered through `setupApp`. The integrated end-to-end tests (piece e) are still to come.
 
 ## Changelog
 | Date | What changed | Why |
@@ -121,3 +126,4 @@ Where the registry lives in code: `src/common/errors/error-registry.ts`. Control
 | 2026-09-29 | Draft created | F3.2 docs-first |
 | 2026-09-29 | Settled request id format, registry location, unmapped-error rule and log content | F3.2 decisions before code |
 | 2026-09-29 | Added the expose rule for non-Nest 4xx errors and the log levels | Exception filter built (piece c) |
+| 2026-09-29 | Success wrapper rules (always wrap, no 204, no `@Res()`) and current-code section updated | Response interceptor rewritten (piece d) |

@@ -1,11 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import { Catch, HttpException, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AppException, type ErrorDetail } from '../errors/app.exception.js';
 import { ERROR_REGISTRY, type ErrorCode } from '../errors/error-registry.js';
-import { REQUEST_ID_HEADER, getRequestId } from '../request-id/request-id.middleware.js';
-import type { RequestWithId } from '../request-id/request-id.middleware.js';
+import { ensureRequestId } from '../request-id/request-id.middleware.js';
 
 const STATUS_TO_CODE: Partial<Record<number, ErrorCode>> = {
   400: 'INVALID_INPUT',
@@ -70,7 +68,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const req = http.getRequest<Request>();
     const res = http.getResponse<Response>();
 
-    const requestId = getRequestId(req) ?? this.attachRequestId(req, res);
+    const requestId = ensureRequestId(req, res);
     const { code, field, details, originalStatus } = classify(exception);
     const { status, message } = ERROR_REGISTRY[code];
 
@@ -88,13 +86,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error.details = details;
     }
     res.status(status).json({ success: false, error, requestId });
-  }
-
-  private attachRequestId(req: Request, res: Response): string {
-    const requestId = randomUUID();
-    (req as RequestWithId).requestId = requestId;
-    if (!res.headersSent) res.setHeader(REQUEST_ID_HEADER, requestId);
-    return requestId;
   }
 
   // Never logs the request url, method, body or headers: they can carry phone numbers and tokens.
