@@ -18,7 +18,7 @@ Last updated: 2026-09-29
 ## F3.2 checklist
 - [x] Docs settled (`standards/response-format.md`, `decisions/DECISIONS.md`)
 - [x] a. Request id (middleware and `setupApp` helper)
-- [ ] b. Error registry and `AppException`
+- [x] b. Error registry and `AppException`
 - [ ] c. Exception filter
 - [ ] d. Response interceptor rewrite
 - [ ] e. Integrated HTTP tests, then mark F3.2 done
@@ -37,3 +37,5 @@ Last updated: 2026-09-29
 - When code reads a new env variable, `.env.example` changes in the same commit.
 - The `.claude` and `.windsurf` skill symlinks use absolute paths and break when the project folder is renamed. Reinstall the skills afterwards.
 - Project folder is still `XCabServer` on disk (rename: optional, not decided).
+- INVALID_INPUT message says "this field" even when `field` is null; revisit wording in F3.3.
+- Confirm the six estimate error messages (OUT_OF_SERVICE_AREA, PICKUP_DROP_TOO_CLOSE, TRIP_TOO_LONG, ROUTE_UNAVAILABLE, PAYMENT_DUE, ACCOUNT_BANNED) before the estimate API ships.

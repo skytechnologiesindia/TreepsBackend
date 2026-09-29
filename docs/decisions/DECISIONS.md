@@ -60,3 +60,5 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: bodies and headers carry phone numbers and tokens.
 28. **`setupApp(app)` (`src/common/setup-app.ts`) is the single place that registers global middleware, interceptors, filters and, later, pipes. `main.ts` and the tests both call it. F3.3 and F3.4 will add to it.**
     Reason: production and tests share identical wiring, so the tests prove what production does.
+29. **The error-registry spec reads the table in `docs/standards/response-format.md` and fails if the code and the doc disagree.**
+    Reason: the doc is the contract the apps rely on, so a silent difference between doc and code is a bug.
