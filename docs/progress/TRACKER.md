@@ -28,7 +28,7 @@ Last updated: 2026-09-29
 - [x] b. INVALID_INPUT wording "Please check your input." (registry, `response-format.md`, `estimate.md`)
 - [x] c. Building blocks: reason codes, shared field types, pipe error conversion
 - [x] d1. `InputValidationPipe`, `setupApp` registration, HTTP validation tests, banned-patterns test, deliberate contract-test change
-- [ ] d2. Startup route input check (`route-inputs.ts`), `main.ts`, real-routes test, DTO initializer check
+- [x] d2. Startup route input check (`route-inputs.ts`), `main.ts`, real-routes test, DTO initializer check
 - [ ] e. Config validation (DATABASE_URL, PORT, NODE_ENV)
 - [ ] f. e2e import fix (`test/app.e2e-spec.ts` only)
 
@@ -78,4 +78,6 @@ Piece notes:
 - Restrict request bodies to `application/json` before F5 (Nest also accepts `application/x-www-form-urlencoded`, which turns `b[c]=2` into a nested object).
 - The DTO initializer check (d2) covers top-level route DTOs only, not nested DTO classes.
 - The route input check (d2) does not cover file uploads or dynamically added routes.
-- Remove both auth allowlist entries in F4: the banned-patterns allowlist and, once d2 exists, `ROUTE_INPUT_ALLOWLIST` (search for `remove in F4`).
+- Remove both auth allowlist entries in F4: the banned-patterns allowlist and `ROUTE_INPUT_ALLOWLIST` (search for `remove in F4`).
+- Piece e: add a startup database check (fail fast if the database is unreachable). With the pg adapter `$connect()` opens no connection, so today an unreachable database only shows up at the first query.
+- End of F3.4: write a one-page request-flow guide in `docs/learning/` (middleware, body parser, routing, guards, interceptor, pipe, handler, filter).
