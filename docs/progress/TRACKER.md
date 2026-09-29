@@ -15,6 +15,14 @@ Last updated: 2026-09-29
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
 
+## F3.2 checklist
+- [x] Docs settled (`standards/response-format.md`, `decisions/DECISIONS.md`)
+- [ ] a. Request id (middleware and `setupApp` helper)
+- [ ] b. Error registry and `AppException`
+- [ ] c. Exception filter
+- [ ] d. Response interceptor rewrite
+- [ ] e. Integrated HTTP tests, then mark F3.2 done
+
 ## Backlog
 - E2E test cannot find `supertest/types` (`test/app.e2e-spec.ts`). Fix in F3.3.
 - Login code uses the removed `prisma.user` (`src/auth/auth.service.ts`). Fix in F4; do not patch before.

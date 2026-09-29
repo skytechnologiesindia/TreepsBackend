@@ -48,11 +48,13 @@ Every reply uses one of the two shapes above, including errors raised by the fra
 | Missing or bad token | UNAUTHORIZED, 401 |
 | Wrong role | FORBIDDEN, 403 |
 | Malformed or invalid request body | INVALID_INPUT, 400 |
-| Any unexpected crash or unmapped error | INTERNAL_ERROR, 500, generic message only |
+| Any other unmapped 4xx error (for example 405, 413) | INVALID_INPUT, 400, `field` null |
+| Any unmapped 5xx error, any unexpected crash, any non-HTTP error | INTERNAL_ERROR, 500, generic message only |
 
 - An unexpected crash never returns a stack trace, an internal message or any detail about the server.
-- The real error is logged on the server together with the `requestId`.
-- Other framework statuses (for example 405, 413): TO DECIDE.
+- The real error is logged on the server. The log entry contains the `requestId`, the error and its stack. It never contains the request body or headers, which can hold phone numbers and tokens.
+- Unmapped errors: any 4xx `HttpException` without its own registry code becomes INVALID_INPUT, 400, with `field` null. Any unmapped 5xx and any non-HTTP error becomes INTERNAL_ERROR, 500, with the generic message only. Both cases are logged with the `requestId`. Why: a client mistake such as an oversized body should not look like a server failure.
+- Dedicated codes for 405 and 413: TO DECIDE.
 
 ## 4. HTTP status per error type
 | Error type | HTTP status |
@@ -87,17 +89,19 @@ Messages for the estimate codes are copied from `docs/api/estimate.md`, where th
 | PAYMENT_DUE | 403 | "Please clear your pending payment first." (proposed) | null |
 | ACCOUNT_BANNED | 403 | "This account can't book rides." (proposed) | null |
 
-Where the registry lives in code: TO DECIDE (decided when F3.2 is built).
+Where the registry lives in code: `src/common/errors/error-registry.ts`. Controllers throw a single `AppException` (`src/common/errors/app.exception.ts`) with a code and optional `{ field, details }`. Status and message come only from the registry; `details` is accepted only with INVALID_INPUT and the constructor rejects it on any other code.
 
 ## 6. Request id
 - The server generates a `requestId` for every request. It is built in F3.2.
-- Format, and whether a client-sent id is accepted: TO DECIDE.
+- Format: UUID v4, generated with Node's built-in `crypto.randomUUID`.
+- A client-sent `X-Request-Id` is ignored and never trusted.
+- It is returned in the body (`requestId`) and in the `X-Request-Id` response header.
 
 ## 7. Rules and why
 1. **Every reply uses exactly one of the two shapes.** Why: the apps parse every reply with one code path and never need a special case.
-2. **Every reply carries a `requestId`.** Why: support can match a rider's report to the exact server log line.
+2. **Every reply carries a server-generated `requestId`; a client-sent id is ignored.** Why: support can match a rider's report to the exact server log line, and nobody can forge log entries.
 3. **Unexpected crashes return INTERNAL_ERROR with a generic message and no stack trace.** Why: stack traces and internal messages show attackers how the server works.
-4. **Any error not mapped to a registry code becomes INTERNAL_ERROR.** Why: an unknown failure must not leak details or invent a code.
+4. **An unmapped 4xx error becomes INVALID_INPUT; an unmapped 5xx or non-HTTP error becomes INTERNAL_ERROR.** Why: a client mistake such as an oversized body should not look like a server failure, and an unknown server failure must not leak details or invent a code.
 5. **Codes are UPPER_SNAKE_CASE and are never renamed once an app ships.** Why: rider and driver apps in the field branch on the code text, so a rename breaks every installed version.
 6. **The code is the contract; the message is an English fallback. Apps may show their own localized text keyed on the code.** Why: riders may read Hindi or English, and wording can change without breaking any app.
 7. **Messages live only in the registry, never typed inside controllers.** Why: one place to review and keep them safe for riders, and the same error always reads the same.
@@ -105,6 +109,7 @@ Where the registry lives in code: TO DECIDE (decided when F3.2 is built).
 9. **HTTP status comes from the registry, not chosen ad hoc.** Why: each status keeps one meaning across all APIs.
 10. **`field` is the request field name as the client sent it, or null; `details` exists only on INVALID_INPUT.** Why: the app can highlight the exact inputs without parsing text, and every other error stays small and predictable.
 11. **Messages never contain internal details or another user's data.** Why: replies reach the rider's phone and any network in between.
+12. **Error logs never contain request bodies or headers.** Why: they can hold phone numbers and tokens.
 
 ## Current code vs this format
 `src/common/interceptors/response.interceptor.ts` returns `{ success, statusCode, message, data, timestamp }` and has no `requestId`. No exception filter exists. F3.2 replaces the interceptor and adds the filter.
@@ -113,3 +118,4 @@ Where the registry lives in code: TO DECIDE (decided when F3.2 is built).
 | Date | What changed | Why |
 |---|---|---|
 | 2026-09-29 | Draft created | F3.2 docs-first |
+| 2026-09-29 | Settled request id format, registry location, unmapped-error rule and log content | F3.2 decisions before code |
