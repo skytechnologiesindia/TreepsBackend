@@ -128,6 +128,15 @@ export function findRouteInputProblems(
   return problems;
 }
 
+// The message holds only controller names, handler names and rule references, never request
+// data, so it is safe to print at startup (see src/config/startup-failure.ts).
+export class RouteInputsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RouteInputsError';
+  }
+}
+
 export function controllersOf(app: INestApplication): Function[] {
   const controllers: Function[] = [];
   for (const module of app.get(ModulesContainer).values()) {
@@ -144,7 +153,7 @@ export function controllersOf(app: INestApplication): Function[] {
 export function assertRouteInputs(app: INestApplication): void {
   const problems = findRouteInputProblems(controllersOf(app));
   if (problems.length > 0) {
-    throw new Error(
+    throw new RouteInputsError(
       `Route input check failed (docs/standards/input-validation.md, rules 1, 3 and 5):\n${problems
         .map((p) => `  - ${p}`)
         .join('\n')}`,

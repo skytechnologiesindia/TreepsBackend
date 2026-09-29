@@ -5,6 +5,7 @@ import { Latitude, Nested, Optional, Page, Required, ToInt } from './fields.js';
 import {
   assertRouteInputs,
   findRouteInputProblems,
+  RouteInputsError,
   ROUTE_INPUT_ALLOWLIST,
 } from './route-inputs.js';
 
@@ -276,6 +277,20 @@ describe('assertRouteInputs on a Nest app', () => {
     expect(message).toContain('InterfaceController.create');
     expect(message).toContain('NamedController.a');
     expect(message.split('\n').filter((l) => l.startsWith('  - '))).toHaveLength(4);
+    await moduleRef.close();
+  });
+
+  it('throws a RouteInputsError, so the startup printer may show its message', async () => {
+    const moduleRef = await Test.createTestingModule({ controllers: [InlineController] }).compile();
+    const app = moduleRef.createNestApplication();
+    let error: unknown;
+    try {
+      assertRouteInputs(app);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(RouteInputsError);
+    expect((error as Error).name).toBe('RouteInputsError');
     await moduleRef.close();
   });
 

@@ -73,9 +73,24 @@ Checked when the server starts, before it accepts requests. Failure stops the pr
 
 | Variable | Rule | Reasons |
 |---|---|---|
-| DATABASE_URL | Required. A `postgresql://` or `postgres://` URL that parses. | REQUIRED, INVALID_FORMAT |
-| PORT | Optional, default 3000. Plain decimal digits, 1 to 65535. Converted to a number explicitly. | INVALID_FORMAT, OUT_OF_RANGE |
-| NODE_ENV | Required. One of `development`, `test`, `production`. No default. | REQUIRED, NOT_ALLOWED |
+| DATABASE_URL | Required. Must start with `postgresql://` or `postgres://` (any letter case), contain no control character (newline, NUL, anything below U+0020) and no leading or trailing space, and parse as a URL. | REQUIRED, INVALID_FORMAT |
+| PORT | Optional, default 3000. Plain decimal digits with no leading zero (empty, `080`, `+80`, spaces and non-ASCII digits are refused), 1 to 65535. Converted to a number explicitly. | INVALID_FORMAT, OUT_OF_RANGE |
+| NODE_ENV | Required. One of `development`, `test`, `production`, exact and case-sensitive. No default. | REQUIRED, NOT_ALLOWED |
+
+All problems are reported together in one message, for example `Invalid environment configuration: DATABASE_URL (REQUIRED), PORT (OUT_OF_RANGE). See ...`. The code is `src/config/env.validation.ts`, wired through `ConfigModule.forRoot({ validate })`.
+
+### Startup database check
+After the app is created and the route input check has passed, and before `listen()`, the server opens one connection with the `pg` client, runs `SELECT 1`, and closes it (`src/config/database-check.ts`).
+- **Limit: 5 seconds** for the whole check. A host that never answers stops startup instead of hanging.
+- **Any failure** (wrong password, unreachable host, timeout, a connection string the driver refuses) gives the same fixed message: `Database check failed: could not run a test query using DATABASE_URL (the database is unreachable within 5 seconds, or it refused the connection). Check that the database is running and that the host, port, user, password and database name in DATABASE_URL are right.` The error has no cause and carries no input; driver text can hold the username, the host or the password, so it is never kept or printed.
+- Closing the client is best effort (1 second) and never changes the result.
+- It checks that the database answers. It does not check that migrations are applied (backlog).
+
+### How a failed start ends
+`main.ts` sends every startup failure, including an unhandled rejection, to `refuseToStart` (`src/config/startup-failure.ts`). It prints ONE line to stderr and exits with code 1:
+- an `EnvConfigError`, a `DatabaseCheckError` or a `RouteInputsError` (our own types) prints its own message, which is built from variable names, controller and handler names, reason codes and constants, never from a value;
+- anything else (a library error, a string, an object, `undefined`) prints only `Startup failed. See server logs for details.`
+- The server does not rely on Node's default unhandled-rejection behavior, so `NODE_OPTIONS=--unhandled-rejections=warn` cannot turn a refused start into a running server.
 
 - **The owner must add `NODE_ENV=development` to the local `.env`.** The agent never edits `.env`.
 - A new environment variable needs a rule here and a line in `.env.example` in the same commit.
@@ -91,4 +106,5 @@ Nest drops prototype keys (such as `__proto__`) from a request before validation
 | 2026-09-29 | `field` skips the `$unknown` entry; an unusable body has `field` null and no `details` | Owner decisions before commit |
 | 2026-09-30 | Text counts code points and rejects U+0000; years 0000 to 0099 rejected; `{}` is a normal body | F3.3 piece c (validation building blocks) |
 | 2026-09-30 | Raw request access banned (rule 13); banned-patterns test named in rule 5 | F3.3 piece d1 (input validation pipe) |
+| 2026-09-30 | Section 6: DATABASE_URL prefix and control-character rules, PORT rejects empty and leading zeros, startup database check, how a failed start ends | F3.3 piece e (config validation) |
 | 2026-09-30 | Startup route input check and DTO initializer check (rule 14) | F3.3 piece d2 |

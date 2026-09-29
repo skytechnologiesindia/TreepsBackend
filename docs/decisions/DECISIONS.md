@@ -130,3 +130,17 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: a default set in a DTO satisfies "required" without the client sending anything, which contradicts rule 3 (no silent defaults); a DTO whose constructor throws cannot be validated at all.
 63. **Vitest's `testTimeout` and `hookTimeout` are 15 seconds (`vitest.config.ts`), with no retries.**
     Reason: the heavier real-application spec runs in parallel and made three HTTP specs cross the 5 second default; a longer timeout removes the flakiness without hiding real failures; retries are not used because they hide real bugs.
+64. **Environment validation is hand-written (`src/config/env.validation.ts`) with the fixed reason codes, and wired through `ConfigModule.forRoot({ validate })`. It reports every bad variable in one message that names the variable and the reason code, never the value. `DATABASE_URL` must start with `postgres://` or `postgresql://` and contain no control character; `NODE_ENV` is required with no default.**
+    Reason: it reuses the fixed reason codes of decision 37 and cannot echo a secret; a default `NODE_ENV` would let a missing value silently choose a mode; `new URL()` alone accepts `postgresql:` with no host, so the prefix is checked first.
+65. **The server checks the database before `listen()` (`src/config/database-check.ts`): connect, `SELECT 1`, close, within 5 seconds. Every failure gives one fixed message (`DatabaseCheckError`) with no cause and no input.**
+    Reason: with the pg adapter Prisma connects lazily, so a wrong password or an unreachable host would otherwise appear only at the first request; pg has no default connect timeout and hangs on an unreachable host; the driver error text can contain the username, host or password.
+66. **`PORT` rejects an empty value and leading zeros (`080`); it accepts plain digits from 1 to 65535 and is converted to a number explicitly.**
+    Reason: `080` reads as octal in some tools and an empty `PORT=` is almost always a mistake, so both stop startup instead of being guessed.
+67. **`main.ts` does not depend on Node's default unhandled-rejection behavior: every startup failure, and an `unhandledRejection` handler, go through `refuseToStart`, which prints one line and exits with code 1.**
+    Reason: an invalid environment is a rejection raised outside `bootstrap()`; one operator flag (`--unhandled-rejections=warn`) would otherwise turn a refused start into a running server with a bad configuration.
+68. **A startup failure prints its own message only if it is an `EnvConfigError`, a `DatabaseCheckError` or a `RouteInputsError`. Every other rejection value prints only `Startup failed. See server logs for details.`**
+    Reason: a library message can contain a connection string, so it never reaches the console; our own three types build their messages from names, reason codes and constants only.
+69. **The route input check throws its own `RouteInputsError` (message unchanged).**
+    Reason: the check exists to tell the developer which controller and handler broke the rule, and its message contains no request data, so it is safe to print.
+70. **The database check message says "could not run a test query ... (unreachable within 5 seconds, or refused the connection)".**
+    Reason: one fixed text must be true for both a timeout and a refused login; it holds no value.
