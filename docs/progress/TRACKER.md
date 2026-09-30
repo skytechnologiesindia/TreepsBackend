@@ -11,7 +11,7 @@ Last updated: 2026-09-30
 | F3.1 | Repo hygiene | Done |
 | F3.2 | Response envelope, error-code registry and request id | Done |
 | F3.3 | Input and config validation | Done |
-| F3.4 | /v1 versioning only | Not started |
+| F3.4 | /v1 versioning only | Done |
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
 
@@ -22,6 +22,12 @@ Last updated: 2026-09-30
 - [x] c. Exception filter
 - [x] d. Response interceptor rewrite
 - [x] e. Integrated HTTP tests, then mark F3.2 done
+
+## F3.4 checklist
+- [x] Versioning in `setupApp` (`api-version.ts`), test helper `testing/base-url.ts`, specs on the versioned base URL, new `api-version.http.spec.ts`
+- [x] Banned-patterns rule: no version written in a `@Controller` path
+- [x] E2E: `/v1` served, `/`, `/v2/x` and `/auth/login` are NOT_FOUND, `/v1/auth/login` is served
+- [x] Docs: `api-standard.md` section 8, `response-format.md`, decisions 72 to 76
 
 ## F3.3 checklist
 - [x] a. Docs (`standards/input-validation.md`, decisions, response-format)
@@ -67,7 +73,6 @@ Piece notes:
 - Decide dedicated codes for 405 and 413; the warning log records `originalStatus` so real cases can be seen.
 - Keep server logs access-controlled: Prisma error text can contain input values.
 - Guards registered through `APP_GUARD` in F4 will not be in `setupApp`; the test modules must import the same guard setup, or the tests will not prove what production does.
-- Pipe errors carry `field` null today (pinned by the contract test in `src/common/contract.http.spec.ts`); F3.3 decides, and that test changes on purpose.
 - If a browser admin panel is ever built, it needs `Access-Control-Expose-Headers: X-Request-Id`.
 - Extract a shared HTTP test helper (app setup, base URL, UUID regex) with no assertion changes and its own commit, after F3.3.
 - Security headers (for example `X-Content-Type-Options: nosniff`) must be added before deployment.
@@ -81,4 +86,6 @@ Piece notes:
 - Startup check that migrations are applied (the database check only proves the database answers).
 - Decide a safe way to log real startup errors for operators before deployment. Today only our three own error types (env, database check, route inputs) print their message; any library error prints only a generic line (decision 68).
 - Decide whether `npm test` should also run the e2e spec when the first real e2e for a real API exists (today `.e2e-spec.ts` runs only through `npm run test:e2e`).
+- Build `/health` as `VERSION_NEUTRAL` (no database call, never changes) before deployment.
+- Banned-patterns scan is line-based: a `@Controller(` whose path string is on the next line slips past the "no version in a controller path" rule (see `api-standard.md`, section 8). Fix only if it ever appears.
 - End of F3.4: write a one-page request-flow guide in `docs/learning/` (middleware, body parser, routing, guards, interceptor, pipe, handler, filter).

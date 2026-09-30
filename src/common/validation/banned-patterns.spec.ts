@@ -10,7 +10,16 @@ const RAW_HINT =
 
 // Whole-word matching: a name must be followed directly by "(", so @Res( never matches
 // @Response( (and the other way round), and @Req( never matches @Request(.
-const BANNED = [
+interface BannedPattern {
+  name: string;
+  rule: number;
+  hint: string;
+  pattern: RegExp;
+  // Where the rule is written, when it is not input-validation.md.
+  where?: string;
+}
+
+const BANNED: BannedPattern[] = [
   { name: 'a built-in Parse pipe', rule: 5, hint: DTO_HINT, pattern: /\bParse(?:Int|Float|Bool|Array|UUID|Enum)Pipe\b/ },
   { name: "named extraction @Param('x')", rule: 5, hint: DTO_HINT, pattern: /@Param\(\s*['"`]/ },
   { name: "named extraction @Query('x')", rule: 5, hint: DTO_HINT, pattern: /@Query\(\s*['"`]/ },
@@ -20,6 +29,14 @@ const BANNED = [
   { name: 'raw response access @Res()', rule: 13, hint: RAW_HINT, pattern: /@Res\s*\(/ },
   { name: 'raw response access @Response()', rule: 13, hint: RAW_HINT, pattern: /@Response\s*\(/ },
   { name: 'raw header access @Headers()', rule: 13, hint: RAW_HINT, pattern: /@Headers\s*\(/ },
+  {
+    name: 'a version written in a @Controller path',
+    rule: 0,
+    where: 'docs/standards/api-standard.md, section 8',
+    hint: 'Remove it: the default version already adds the /v1 prefix, so a written version would be served at /v1/v1/....',
+    // @Controller('v1/x'), @Controller("/v2"), @Controller({ path: 'v1/x' }); any letter case.
+    pattern: /@Controller\(\s*(?:\{[^}]*\bpath\s*:\s*)?['"`]\/?v\d+(?:['"`/])/i,
+  },
 ];
 
 // Files allowed to break a rule, with the reason. Growing this list needs an owner decision.
@@ -40,10 +57,10 @@ function findBannedPatterns(path: string, source: string): string[] {
   blankOutComments(source)
     .split('\n')
     .forEach((line, i) => {
-      for (const { name, rule, hint, pattern } of BANNED) {
+      for (const { name, rule, hint, pattern, where } of BANNED) {
         if (pattern.test(line)) {
           findings.push(
-            `${path}:${i + 1}: ${name} is banned (docs/standards/input-validation.md, rule ${rule}). ${hint}\n    > ${original[i].trim()}`,
+            `${path}:${i + 1}: ${name} is banned (${where ?? `docs/standards/input-validation.md, rule ${rule}`}). ${hint}\n    > ${original[i].trim()}`,
           );
         }
       }
@@ -142,6 +159,39 @@ describe('banned patterns (input-validation.md rules 5 and 13)', () => {
       'function Res() {}',
     ])('look-alikes and plain uses of the words: %s', (code) => {
       expect(findBannedPatterns('src/x.ts', code)).toEqual([]);
+    });
+  });
+
+  describe('a version written in a @Controller path', () => {
+    it.each([
+      "@Controller('v1/rides')",
+      '@Controller("v2")',
+      '@Controller(`v10/x`)',
+      "@Controller('/v1/rides')",
+      "@Controller( 'V1/rides' )",
+      "@Controller({ path: 'v1/rides' })",
+      "@Controller({ version: '1', path: 'v3' })",
+    ])('flags %s', (code) => {
+      const found = findBannedPatterns('src/x.controller.ts', code);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain('a version written in a @Controller path');
+      expect(found[0]).toContain('docs/standards/api-standard.md, section 8');
+      expect(found[0]).toContain('/v1/v1/');
+    });
+
+    it.each([
+      "@Controller('rides')",
+      '@Controller()',
+      "@Controller('auth')",
+      "@Controller('video')",
+      "@Controller('v')",
+      "@Controller('vip/v1')",
+      "@Controller({ path: 'rides', version: '2' })",
+      "@Controller({ path: 'health', version: VERSION_NEUTRAL })",
+      "// @Controller('v1/rides') is wrong",
+      "@Get('v1')",
+    ])('does not flag %s', (code) => {
+      expect(findBannedPatterns('src/x.controller.ts', code)).toEqual([]);
     });
   });
 

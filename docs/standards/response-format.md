@@ -49,6 +49,7 @@ Every reply uses one of the two shapes above, including errors raised by the fra
 | Situation | Reply |
 |---|---|
 | Unknown route | NOT_FOUND, 404 |
+| Unknown route with no version or an unknown version (`/`, `/nope`, `/v2/x`) | NOT_FOUND, 404 (see `api-standard.md`, section 8) |
 | Missing or bad token | UNAUTHORIZED, 401 |
 | Wrong role | FORBIDDEN, 403 |
 | Malformed or invalid request body | INVALID_INPUT, 400 |

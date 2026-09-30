@@ -10,10 +10,10 @@ import {
 } from '@nestjs/common';
 import type { CanActivate, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import type { AddressInfo } from 'node:net';
 import { AppException } from './errors/app.exception.js';
 import { ERROR_REGISTRY, type ErrorCode } from './errors/error-registry.js';
 import { setupApp } from './setup-app.js';
+import { versionedBaseUrl } from './testing/base-url.js';
 import { Page, Required, ToInt } from './validation/fields.js';
 
 // Test-local DTO: the limit is a test value, not a project default.
@@ -102,8 +102,7 @@ describe('HTTP contract for the response standard', () => {
     app = moduleRef.createNestApplication();
     setupApp(app);
     await app.listen(0, '127.0.0.1');
-    const { port } = app.getHttpServer().address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${port}`;
+    baseUrl = versionedBaseUrl(app);
   });
 
   afterAll(async () => {

@@ -47,3 +47,12 @@ Every API follows this. Exceptions must be recorded in `DECISIONS.md`.
 - The API doc exists (from the template) and is approved BEFORE code is written.
 - Tests listed in the doc pass.
 - Docs and changelog are updated for any change.
+
+## 8. Versioning
+- Every route is served under a version prefix: `/v1/...`. `setupApp` applies it (`src/common/api-version.ts`), so production and every test share it.
+- Versions are whole numbers only (`v1`, `v2`). A minor change to a version goes in that API's changelog, not in the path.
+- **Controllers never write the version in their path.** Write `@Controller('rides')`, not `@Controller('v1/rides')`. Why: the default version already adds the prefix, so a written version would be served at `/v1/v1/rides`. A test in the banned-patterns scan enforces this. **Known limitation:** the scan reads line by line, so a `@Controller(` whose path string is on the next line is not caught. The review of a new controller must check it by eye.
+- A route that must exist in another version uses `@Version('2')`; it is then served under `/v2` and not under `/v1`.
+- Version-neutral routes (`VERSION_NEUTRAL`, no prefix) are reserved for `/health`, which must never change. Any other neutral route needs an entry in `DECISIONS.md`.
+- A path with no version (`/rides`) or an unknown version (`/v2/rides` when nothing is v2) is the normal `NOT_FOUND` envelope. There is no special "unsupported version" error.
+- `/V1` also works, because Express matches paths without regard to case. This is left as is.

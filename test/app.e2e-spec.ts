@@ -38,14 +38,39 @@ describe('AppController (e2e)', () => {
 
   // This assertion changed on purpose. The old one expected the raw body 'Hello World!', which
   // describes a reply that production no longer sends: every reply is wrapped in the envelope.
-  it('/ (GET) returns the success envelope', async () => {
-    const response = await request(app.getHttpServer()).get('/').expect(200);
+  // The route also moved from / to /v1 (F3.4): setupApp applies the default version.
+  it('/v1 (GET) returns the success envelope', async () => {
+    const response = await request(app.getHttpServer()).get('/v1').expect(200);
 
     expect(response.body.success).toBe(true);
     expect(response.body.data).toBe('Hello World!');
     expect(Object.keys(response.body).sort()).toEqual(['data', 'requestId', 'success']);
     expect(response.body.requestId).toMatch(UUID_V4);
     expect(response.headers['x-request-id']).toBe(response.body.requestId);
+  });
+
+  function expectNotFoundEnvelope(response: request.Response) {
+    expect(response.status).toBe(404);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('NOT_FOUND');
+    expect(Object.keys(response.body).sort()).toEqual(['error', 'requestId', 'success']);
+    expect(response.body.requestId).toMatch(UUID_V4);
+    expect(response.headers['x-request-id']).toBe(response.body.requestId);
+  }
+
+  it('/ (GET) without a version is the NOT_FOUND envelope', async () => {
+    expectNotFoundEnvelope(await request(app.getHttpServer()).get('/'));
+  });
+
+  it('/v2/x (GET), an unknown version, is the NOT_FOUND envelope', async () => {
+    expectNotFoundEnvelope(await request(app.getHttpServer()).get('/v2/x'));
+  });
+
+  it('POST /auth/login without a version is 404, and POST /v1/auth/login is served', async () => {
+    expectNotFoundEnvelope(await request(app.getHttpServer()).post('/auth/login').send({}));
+    // Only "the route exists" is asserted; the login behavior is frozen until F4.
+    const versioned = await request(app.getHttpServer()).post('/v1/auth/login').send({});
+    expect(versioned.status).not.toBe(404);
   });
 
   it('an unknown route returns 404 with the error envelope', async () => {

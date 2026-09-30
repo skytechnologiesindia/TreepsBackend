@@ -1,8 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import type { AddressInfo } from 'node:net';
 import { setupApp } from './setup-app.js';
+import { versionedBaseUrl } from './testing/base-url.js';
 
 const UUID_V4 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -26,8 +26,7 @@ describe('setupApp: request id', () => {
     app = moduleRef.createNestApplication();
     setupApp(app);
     await app.listen(0, '127.0.0.1');
-    const { port } = app.getHttpServer().address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${port}`;
+    baseUrl = versionedBaseUrl(app);
   });
 
   afterAll(async () => {

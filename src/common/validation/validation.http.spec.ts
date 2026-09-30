@@ -13,8 +13,8 @@ import {
 import type { CanActivate, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { IsString, Matches } from 'class-validator';
-import type { AddressInfo } from 'node:net';
 import { setupApp } from '../setup-app.js';
+import { versionedBaseUrl } from '../testing/base-url.js';
 import {
   Latitude,
   Longitude,
@@ -129,7 +129,7 @@ describe('input validation over real HTTP', () => {
     app = moduleRef.createNestApplication();
     setupApp(app);
     await app.listen(0, '127.0.0.1');
-    baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
+    baseUrl = versionedBaseUrl(app);
   });
 
   beforeEach(() => {

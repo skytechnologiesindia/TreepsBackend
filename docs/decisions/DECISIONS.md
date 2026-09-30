@@ -146,3 +146,13 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: one fixed text must be true for both a timeout and a refused login; it holds no value.
 71. **The e2e test (`test/app.e2e-spec.ts`) calls `setupApp`, sets its own dummy `DATABASE_URL` and `NODE_ENV=test` before `AppModule` is imported, and replaces `PrismaService` with an empty stand-in.**
     Reason: it is the only test that boots the real `AppModule`, so it must test what production serves (the envelope, request id and error format), not the old raw reply; the dummy environment and stand-in stop it depending on a developer's `.env` or touching a database.
+72. **Versioning uses Nest URI versioning with the default version `'1'`, not a global prefix `v1`.**
+    Reason: a global prefix is one fixed string, so a v2 controller could not be served next to v1; URI versioning gives `/v1` now, `@Version('2')` later, and version-neutral routes.
+73. **Versioning is applied inside `setupApp` (`enableApiVersioning`), and the throwaway-controller specs build their base URL with a test helper (`src/common/testing/base-url.ts`).**
+    Reason: `setupApp` exists so production and tests share identical wiring; a separate call could be forgotten by the next entry point, and contract tests would then pass against routes production does not serve.
+74. **A path with no version or an unknown version is the normal `NOT_FOUND` envelope, with no special rejection.**
+    Reason: the route simply does not exist, so the existing unknown-route handling already answers it correctly and a new error code would add nothing.
+75. **Version-neutral routes are reserved for `/health`.**
+    Reason: a health check must keep the same address across versions so monitors never need updating; any other unversioned route would blur the versioning rule.
+76. **Controllers never write the version in their path; a banned-patterns test enforces it.**
+    Reason: the default version already adds the prefix, so a written `v1` would be served at `/v1/v1/...`.
