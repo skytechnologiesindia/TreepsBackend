@@ -23,11 +23,15 @@ Last updated: 2026-09-30
 - [x] d. Response interceptor rewrite
 - [x] e. Integrated HTTP tests, then mark F3.2 done
 
+## F4 notes
+- Login uses Firebase phone authentication: the server verifies Firebase ID tokens (decision 77).
+
 ## F3.4 checklist
 - [x] Versioning in `setupApp` (`api-version.ts`), test helper `testing/base-url.ts`, specs on the versioned base URL, new `api-version.http.spec.ts`
 - [x] Banned-patterns rule: no version written in a `@Controller` path
 - [x] E2E: `/v1` served, `/`, `/v2/x` and `/auth/login` are NOT_FOUND, `/v1/auth/login` is served
 - [x] Docs: `api-standard.md` section 8, `response-format.md`, decisions 72 to 76
+- [x] Request-flow guide (`docs/learning/how-a-request-flows.md`)
 
 ## F3.3 checklist
 - [x] a. Docs (`standards/input-validation.md`, decisions, response-format)
@@ -59,7 +63,6 @@ Piece notes:
 ## Backlog
 - Login code uses the removed `prisma.user` (`src/auth/auth.service.ts`). Fix in F4; do not patch before.
 - Mock token security hole in `src/auth/firebase.service.ts`. **Do not deploy before F4.**
-- Open decision for F4: Firebase phone OTP or own OTP with an SMS provider. Must be decided before F4 starts.
 - `Rider` has no account status field (F5).
 - Rename branch `master` to `main` before the first push.
 - Keep the DB backup until F4 is done (see `runbooks/database.md`).
@@ -86,6 +89,6 @@ Piece notes:
 - Startup check that migrations are applied (the database check only proves the database answers).
 - Decide a safe way to log real startup errors for operators before deployment. Today only our three own error types (env, database check, route inputs) print their message; any library error prints only a generic line (decision 68).
 - Decide whether `npm test` should also run the e2e spec when the first real e2e for a real API exists (today `.e2e-spec.ts` runs only through `npm run test:e2e`).
+- Rate limiting: none exists although RATE_LIMITED is in the registry; build with F4 (needs the user id), before the estimate API.
 - Build `/health` as `VERSION_NEUTRAL` (no database call, never changes) before deployment.
 - Banned-patterns scan is line-based: a `@Controller(` whose path string is on the next line slips past the "no version in a controller path" rule (see `api-standard.md`, section 8). Fix only if it ever appears.
-- End of F3.4: write a one-page request-flow guide in `docs/learning/` (middleware, body parser, routing, guards, interceptor, pipe, handler, filter).

@@ -156,3 +156,5 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
     Reason: a health check must keep the same address across versions so monitors never need updating; any other unversioned route would blur the versioning rule.
 76. **Controllers never write the version in their path; a banned-patterns test enforces it.**
     Reason: the default version already adds the prefix, so a written `v1` would be served at `/v1/v1/...`.
+77. **Login uses Firebase phone authentication, not our own OTP.**
+    Reason: OTP SMS delivery in India needs DLT registration, and Firebase handles delivery and abuse limits, so far less security-critical code has to be written and maintained. The costs are a dependency on Google and SMS charges beyond the free tier.

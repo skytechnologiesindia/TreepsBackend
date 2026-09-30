@@ -22,3 +22,14 @@ Append new terms at the bottom as they come up.
 
 ## Order a request travels through
 Middleware, Guards, Interceptors (before), Pipes, Handler, Interceptors (after), Exception Filters (only on error).
+| Joi `.required()` / `.optional()` | `Required(type)` / `Optional(type)` (`src/common/validation/fields.ts`) | Wrap a shared field type on a DTO property: required, or checked only when sent |
+| Joi `.number().min(-90).max(90)` | `Latitude()`, `Longitude()` | JSON numbers within the degree range |
+| Regex check on a phone string | `Phone({ minDigits, maxDigits })` | E.164 string: `+` then digits |
+| Number field holding rupees | `Money({ max })` | Integer paise, 0 or more |
+| `Number(req.query.page)` by hand | `Page({ max })`, `PageSize({ max })`, `ToInt()` | Integer paging values; `ToInt()` converts a query string strictly |
+| `new Date(str)` guessing zones | `UtcDate({ min, max })` | UTC text with `Z`; limits are functions |
+| `uuid.validate(str)` | `Uuid({ versions })` | UUID string |
+| `Joi.string().min().max()` | `Text({ min, max })` | Length counted in code points |
+| `Joi.valid('A','B')` / a Mongoose `enum` | `OneOf(values)` | The value must be one of the listed strings |
+| Joi `.object(schema)` / a Mongoose sub-document | `Nested(() => Dto)` | An object checked against another DTO class |
+| Joi `.array().items(schema).min().max()` / an array of sub-documents | `NestedList(() => Dto, { min, max })` | A list of objects, each checked against a DTO class, with a size limit |

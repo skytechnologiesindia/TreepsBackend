@@ -12,6 +12,7 @@
 | [api/estimate.md](api/estimate.md) | POST /v1/rides/estimate |
 | [engines/fare-engine.md](engines/fare-engine.md) | Fare engine |
 | [learning/nest-for-express-devs.md](learning/nest-for-express-devs.md) | Express/Mongoose to NestJS/Prisma glossary |
+| [learning/how-a-request-flows.md](learning/how-a-request-flows.md) | One request through the server, and how to add an API |
 | [runbooks/database.md](runbooks/database.md) | Dev database, backups, migrations |
 
 Agent rules: [../CLAUDE.md](../CLAUDE.md).
