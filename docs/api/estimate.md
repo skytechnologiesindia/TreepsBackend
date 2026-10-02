@@ -1,6 +1,71 @@
 # POST /v1/rides/estimate
 
-Status: Draft (open TO DECIDE items; not yet implemented)
+Status: Draft (open TO DECIDE items). The L0 fake version is built (see below); the real API is not.
+
+## L0 (temporary)
+
+Status: built (commit dba5201). This section describes the first version of the route, which returns FAKE fixed values. It is temporary: the fake values stay until L3 replaces them with the real formula. Where it disagrees with the rest of this doc, this section wins for L0 only; the rest of the doc is the final contract.
+
+### Scope
+- **Real in L0:** the route `POST /v1/rides/estimate`, the request validation (the six fields below, unknown fields rejected) and the shape of the reply.
+- **FAKE in L0:** every number in the reply. They are fixed constants. Nothing is computed: no route lookup, no fare engine, no database, no ETA calculation. The fake fares are not rates and must never be described or quoted as prices.
+- **Not in L0:** login and role check, rate limit, the Ranchi bounds check, quote storage, unavailable tiers, modifiers and coupons.
+
+### Open route: no login
+L0 has no login and no role check; anyone who can reach the server can call it. **It must not be deployed until F4 (auth) is done.**
+
+### Status code
+The route replies **200**, not Nest's default 201 for POST, because the estimate creates nothing in L0. A later status change would break the apps, so it stays 200.
+
+### Request in L0
+All six fields are required. Unknown fields are rejected, including a client-sent `fareAmount`.
+
+| Name | Rule in L0 |
+|---|---|
+| pickupLat, dropLat | JSON number, -90 to 90 (degree range only) |
+| pickupLng, dropLng | JSON number, -180 to 180 (degree range only) |
+| pickupAddress, dropAddress | Text, 1 to 200 characters (counted in Unicode code points). The 200 is an L0 placeholder, to be revisited. |
+
+The Ranchi bounds are not checked in L0, so a point outside Ranchi still gets fake fares. The Ranchi bounds stay TO DECIDE for the real API.
+
+### Reply in L0
+The reply uses the standard success envelope. `tiers` has the keys MINI, SEDAN and XL.
+
+| Field | L0 value |
+|---|---|
+| quoteId | A new random UUID on every call, **not stored**. It is not a valid quote and must not be booked against until L4. |
+| expiresInSeconds | 180 (FAKE) |
+| distanceMeters | 5000 (FAKE) |
+| durationSeconds | 900 (FAKE) |
+| pickupAddress, dropAddress | Echoed from the request, unchanged |
+| tiers.MINI.fareAmount | 11100 paise (FAKE) |
+| tiers.SEDAN.fareAmount | 22200 paise (FAKE) |
+| tiers.XL.fareAmount | 33300 paise (FAKE) |
+| tiers.<T>.breakdown.baseFare | the tier's whole `fareAmount` (FAKE) |
+| tiers.<T>.breakdown.distanceCharge, timeCharge, minimumFareAdjustment, tax, roundingAdjustment | 0 (FAKE) |
+| tiers.<T>.etaMinutes | 5 (FAKE, all tiers) |
+| tiers.<T>.currency | "INR" |
+| tiers.<T>.isAvailable | true for every tier (FAKE) |
+| tiers.<T>.message | "" (empty text, FAKE) |
+| tiers.<T>.seatCapacity | MINI 4, SEDAN 4, XL 6 (FAKE) |
+
+The six breakdown lines still sum exactly to `fareAmount`, and each fake fare is a whole rupee amount (a multiple of 100 paise).
+
+### Errors L0 can produce
+| Code | HTTP status | When |
+|---|---|---|
+| INVALID_INPUT | 400 | Missing, wrongly typed, out-of-range or unknown field; `field` and `details` as in `standards/response-format.md` |
+| INTERNAL_ERROR | 500 | Only if the code has a bug |
+
+These codes cannot occur in L0 because nothing checks for them yet: OUT_OF_SERVICE_AREA, PICKUP_DROP_TOO_CLOSE, TRIP_TOO_LONG, ROUTE_UNAVAILABLE, PAYMENT_DUE, ACCOUNT_BANNED, RATE_LIMITED.
+
+### Tests for L0
+- Happy path: status 200, all three tiers, the fake values above, each breakdown sums to `fareAmount`.
+- A missing field gives INVALID_INPUT.
+- A wrong type gives INVALID_INPUT.
+- A degree out of range gives INVALID_INPUT.
+- An address that is empty or longer than 200 characters gives INVALID_INPUT.
+- An unknown field, including a client-sent `fareAmount`, gives INVALID_INPUT.
 
 ## Purpose
 A rider chooses a pickup and a drop. This API returns, for each tier, whether it is available, the pickup ETA and the exact fare, plus a quote id the rider can later book against. It lets the rider see the price before requesting a ride.
@@ -105,3 +170,5 @@ Rate limit: TO DECIDE. Log fields: TO DECIDE. Audit events: TO DECIDE.
 | 2026-09-29 | Contract frozen: fields, tiers, breakdown, error codes | Docs-first rule |
 | 2026-09-29 | Status changed from Frozen to Draft | Has open TO DECIDE items that must be resolved before it is frozen |
 | 2026-09-29 | Error statuses aligned with `standards/response-format.md`: ROUTE_UNAVAILABLE 503 to 422, PAYMENT_DUE 402 to 403; `field` is null when not about one input; INVALID_INPUT points at the first invalid field | Error registry decided in F3.2 |
+| 2026-09-30 | Added the "L0 (temporary)" section: fake fixed values, status 200, no login, degree ranges only, address 1 to 200 | First version of the route, owner's answers of 2026-09-30 |
+| 2026-10-02 | L0 marked built (commit dba5201); the five open L0 answers filled in: `quoteId` new random UUID per call and not stored, addresses echoed, `isAvailable` true, `message` empty, `seatCapacity` 4, 4, 6 (all FAKE) | The route was built and tested |

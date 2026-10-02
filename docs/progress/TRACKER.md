@@ -1,6 +1,6 @@
 # Progress Tracker
 
-Last updated: 2026-09-30
+Last updated: 2026-10-02
 
 | Stage | What | Status |
 |---|---|---|
@@ -14,6 +14,16 @@ Last updated: 2026-09-30
 | F3.4 | /v1 versioning only | Done |
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
+| L0 | First estimate API, `POST /v1/rides/estimate`, with FAKE fixed fares | Done (commit dba5201) |
+
+## L0 checklist
+The owner typed the code. Step 1 was a read-only orientation.
+- [x] Step 2: L0 section written in `api/estimate.md`
+- [x] Step 3: request DTO (`src/modules/rides/dto/estimate.dto.ts`)
+- [x] Step 4: service returning the FAKE values
+- [x] Step 5: controller (`@HttpCode(200)`), module, import in `app.module.ts`
+- [x] Step 6: tests (`src/modules/rides/rides.http.spec.ts`)
+- [x] Step 7: `api/estimate.md` and this tracker updated
 
 ## F3.2 checklist
 - [x] Docs settled (`standards/response-format.md`, `decisions/DECISIONS.md`)
