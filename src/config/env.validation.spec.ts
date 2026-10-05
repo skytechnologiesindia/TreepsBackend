@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { REASON_CODES } from '../common/validation/validation-reasons.js';
 import {
   DEFAULT_PORT,
+  DEFAULT_TRUST_PROXY_HOPS,
   EnvConfigError,
   NODE_ENVS,
   validateEnv,
@@ -9,7 +10,24 @@ import {
 } from './env.validation.js';
 
 const VALID_URL = 'postgresql://user:pass@localhost:5432/db?schema=public';
-const VALID = { DATABASE_URL: VALID_URL, NODE_ENV: 'development' };
+// Placeholders only: nothing here is a real key or secret.
+const JWT_SECRET = 'placeholder-jwt-secret-0123456789abcdef';
+const VALID = {
+  DATABASE_URL: VALID_URL,
+  NODE_ENV: 'development',
+  OTP_PROVIDER: 'twofactor',
+  TWOFACTOR_API_KEY: 'placeholder-2factor-api-key',
+  JWT_ACCESS_SECRET: JWT_SECRET,
+};
+// The fake provider needs both settings and a 6-digit code (and is refused in production).
+const FAKE = {
+  DATABASE_URL: VALID_URL,
+  NODE_ENV: 'development',
+  OTP_PROVIDER: 'fake',
+  ALLOW_FAKE_OTP: 'true',
+  FAKE_OTP_CODE: '123456',
+  JWT_ACCESS_SECRET: JWT_SECRET,
+};
 
 function problemsOf(config: Record<string, unknown>): EnvProblem[] {
   try {
@@ -32,6 +50,9 @@ describe('validateEnv', () => {
       expect(result.NODE_ENV).toBe('development');
       expect(result.PORT).toBe(3000);
       expect(DEFAULT_PORT).toBe(3000);
+      expect(result.OTP_PROVIDER).toBe('twofactor');
+      expect(result.TRUST_PROXY_HOPS).toBe(0);
+      expect(result.JWT_ACCESS_SECRET).toBe(JWT_SECRET);
     });
 
     it('converts PORT explicitly to a number', () => {
@@ -142,6 +163,172 @@ describe('validateEnv', () => {
     });
   });
 
+  describe('OTP_PROVIDER', () => {
+    it.each([[undefined], [null], ['']])('%j is REQUIRED (there is no default)', (value) => {
+      expect(reasonsFor('OTP_PROVIDER', { ...VALID, OTP_PROVIDER: value })).toEqual(['REQUIRED']);
+    });
+
+    it.each([['TwoFactor'], ['FAKE'], ['sms'], [' fake'], ['twofactor '], [1]])(
+      '%j is NOT_ALLOWED (exact, case-sensitive)',
+      (value) => {
+        expect(reasonsFor('OTP_PROVIDER', { ...VALID, OTP_PROVIDER: value })).toEqual(['NOT_ALLOWED']);
+      },
+    );
+
+    it('accepts twofactor in every NODE_ENV', () => {
+      for (const env of NODE_ENVS) {
+        expect(validateEnv({ ...VALID, NODE_ENV: env }).OTP_PROVIDER).toBe('twofactor');
+      }
+    });
+
+    it.each([['development'], ['test']])('accepts fake with both settings in %s', (env) => {
+      expect(validateEnv({ ...FAKE, NODE_ENV: env }).OTP_PROVIDER).toBe('fake');
+    });
+
+    it('refuses fake in production, even with ALLOW_FAKE_OTP=true and a valid code', () => {
+      const config = { ...FAKE, NODE_ENV: 'production' };
+      expect(config.ALLOW_FAKE_OTP).toBe('true');
+      expect(problemsOf(config)).toEqual([{ variable: 'OTP_PROVIDER', reason: 'NOT_ALLOWED' }]);
+      expect(() => validateEnv(config)).toThrow(/OTP_PROVIDER \(NOT_ALLOWED\)/);
+    });
+
+    it('twofactor is allowed in production', () => {
+      expect(problemsOf({ ...VALID, NODE_ENV: 'production' })).toEqual([]);
+    });
+  });
+
+  describe('ALLOW_FAKE_OTP (read only when OTP_PROVIDER is fake)', () => {
+    it.each([[undefined], [null], ['']])('%j with fake is REQUIRED', (value) => {
+      expect(reasonsFor('ALLOW_FAKE_OTP', { ...FAKE, ALLOW_FAKE_OTP: value })).toEqual(['REQUIRED']);
+    });
+
+    it.each([['false'], ['TRUE'], ['True'], ['1'], ['yes'], [' true'], ['true '], [true]])(
+      '%j with fake is NOT_ALLOWED (it must be exactly "true")',
+      (value) => {
+        expect(reasonsFor('ALLOW_FAKE_OTP', { ...FAKE, ALLOW_FAKE_OTP: value })).toEqual(['NOT_ALLOWED']);
+      },
+    );
+
+    it('is not read for twofactor, whatever it holds', () => {
+      expect(problemsOf({ ...VALID, ALLOW_FAKE_OTP: 'nonsense' })).toEqual([]);
+    });
+  });
+
+  describe('FAKE_OTP_CODE (read only when OTP_PROVIDER is fake)', () => {
+    it.each([[undefined], [null], ['']])('%j with fake is REQUIRED', (value) => {
+      expect(reasonsFor('FAKE_OTP_CODE', { ...FAKE, FAKE_OTP_CODE: value })).toEqual(['REQUIRED']);
+    });
+
+    it.each([['12345'], ['1234567'], ['12a456'], [' 12345'], ['١٢٣٤٥٦'], [123456]])(
+      '%j is INVALID_FORMAT (exactly 6 ASCII digits, as text)',
+      (value) => {
+        expect(reasonsFor('FAKE_OTP_CODE', { ...FAKE, FAKE_OTP_CODE: value })).toEqual(['INVALID_FORMAT']);
+      },
+    );
+
+    it.each([['000000'], ['012345'], ['123456']])('accepts %s', (value) => {
+      expect(problemsOf({ ...FAKE, FAKE_OTP_CODE: value })).toEqual([]);
+    });
+
+    it('is not read for twofactor, whatever it holds', () => {
+      expect(problemsOf({ ...VALID, FAKE_OTP_CODE: 'nonsense' })).toEqual([]);
+    });
+  });
+
+  describe('TWOFACTOR_API_KEY (read only when OTP_PROVIDER is twofactor)', () => {
+    it.each([[undefined], [null], ['']])('%j with twofactor is REQUIRED', (value) => {
+      expect(reasonsFor('TWOFACTOR_API_KEY', { ...VALID, TWOFACTOR_API_KEY: value })).toEqual(['REQUIRED']);
+    });
+
+    it.each([[' key'], ['key '], ['ke\ny'], ['ke\u0000y'], ['   '], [42]])(
+      '%j is INVALID_FORMAT',
+      (value) => {
+        expect(reasonsFor('TWOFACTOR_API_KEY', { ...VALID, TWOFACTOR_API_KEY: value })).toEqual([
+          'INVALID_FORMAT',
+        ]);
+      },
+    );
+
+    it('is not required for fake', () => {
+      expect(problemsOf({ ...FAKE, TWOFACTOR_API_KEY: undefined })).toEqual([]);
+    });
+  });
+
+  describe('TRUST_PROXY_HOPS', () => {
+    it('defaults to 0 (untrusted) as a number when it is not set', () => {
+      expect(validateEnv(VALID).TRUST_PROXY_HOPS).toBe(0);
+      expect(DEFAULT_TRUST_PROXY_HOPS).toBe(0);
+    });
+
+    it.each([['0', 0], ['1', 1], ['2', 2], ['10', 10]])('accepts %j as %d', (value, hops) => {
+      expect(validateEnv({ ...VALID, TRUST_PROXY_HOPS: value }).TRUST_PROXY_HOPS).toBe(hops);
+    });
+
+    it.each([['11'], ['100'], ['9'.repeat(400)]])('%j is OUT_OF_RANGE', (value) => {
+      expect(reasonsFor('TRUST_PROXY_HOPS', { ...VALID, TRUST_PROXY_HOPS: value })).toEqual(['OUT_OF_RANGE']);
+    });
+
+    it.each([[''], ['-1'], ['01'], ['00'], ['1.5'], ['1e1'], [' 1'], ['1 '], ['+1'], ['two'], ['١']])(
+      '%j is INVALID_FORMAT',
+      (value) => {
+        expect(reasonsFor('TRUST_PROXY_HOPS', { ...VALID, TRUST_PROXY_HOPS: value })).toEqual([
+          'INVALID_FORMAT',
+        ]);
+      },
+    );
+
+    it('a value that is not a string is INVALID_FORMAT', () => {
+      expect(reasonsFor('TRUST_PROXY_HOPS', { ...VALID, TRUST_PROXY_HOPS: 1 })).toEqual(['INVALID_FORMAT']);
+      expect(reasonsFor('TRUST_PROXY_HOPS', { ...VALID, TRUST_PROXY_HOPS: null })).toEqual(['INVALID_FORMAT']);
+    });
+  });
+
+  describe('JWT_ACCESS_SECRET', () => {
+    it.each([[undefined], [null], ['']])('%j is REQUIRED (there is no default)', (value) => {
+      expect(reasonsFor('JWT_ACCESS_SECRET', { ...VALID, JWT_ACCESS_SECRET: value })).toEqual(['REQUIRED']);
+    });
+
+    it.each([['x'], ['x'.repeat(31)], ['é'.repeat(31)]])('%j is TOO_SHORT (under 32 characters)', (value) => {
+      expect(reasonsFor('JWT_ACCESS_SECRET', { ...VALID, JWT_ACCESS_SECRET: value })).toEqual(['TOO_SHORT']);
+    });
+
+    it.each([['x'.repeat(32)], ['x'.repeat(200)], ['é'.repeat(32)]])('accepts a secret of %j length', (value) => {
+      expect(validateEnv({ ...VALID, JWT_ACCESS_SECRET: value }).JWT_ACCESS_SECRET).toBe(value);
+    });
+  });
+
+  describe('the new keys never put a value in the error', () => {
+    const SECRETS = ['SECRET-JWT-VALUE', 'SECRET-KEY-VALUE', 'SECRET-CODE-VALUE', 'SECRET-ALLOW-VALUE', 'SECRET-HOPS-VALUE'];
+    const bad = [
+      { ...VALID, JWT_ACCESS_SECRET: SECRETS[0], TWOFACTOR_API_KEY: ' ' + SECRETS[1] },
+      { ...FAKE, FAKE_OTP_CODE: SECRETS[2], ALLOW_FAKE_OTP: SECRETS[3] },
+      { ...VALID, TRUST_PROXY_HOPS: SECRETS[4] },
+      { ...FAKE, NODE_ENV: 'production', FAKE_OTP_CODE: '123456', JWT_ACCESS_SECRET: SECRETS[0] },
+    ];
+
+    it.each(bad.map((config, i) => [i, config] as const))('case %d: message, stack and own properties hold no value', (_i, config) => {
+      let error: EnvConfigError | undefined;
+      try {
+        validateEnv(config);
+      } catch (e) {
+        error = e as EnvConfigError;
+      }
+      expect(error).toBeInstanceOf(EnvConfigError);
+      const text = [
+        error!.message,
+        String(error!.stack),
+        JSON.stringify(error),
+        JSON.stringify(Object.getOwnPropertyNames(error).map((k) => (error as any)[k])),
+      ].join(' ');
+      for (const secret of [...SECRETS, FAKE.ALLOW_FAKE_OTP + '-no-such-text']) expect(text).not.toContain(secret);
+      expect(text).not.toContain('123456');
+    });
+
+    it('names the key and the reason', () => {
+      expect(() => validateEnv({ ...VALID, JWT_ACCESS_SECRET: 'short' })).toThrow(/JWT_ACCESS_SECRET \(TOO_SHORT\)/);
+    });
+  });
+
   describe('the error', () => {
     it('reports every bad variable together, in order, in one message', () => {
       let error: EnvConfigError | undefined;
@@ -156,9 +343,12 @@ describe('validateEnv', () => {
         { variable: 'DATABASE_URL', reason: 'REQUIRED' },
         { variable: 'PORT', reason: 'OUT_OF_RANGE' },
         { variable: 'NODE_ENV', reason: 'REQUIRED' },
+        { variable: 'OTP_PROVIDER', reason: 'REQUIRED' },
+        { variable: 'JWT_ACCESS_SECRET', reason: 'REQUIRED' },
       ]);
       expect(error!.message).toBe(
-        'Invalid environment configuration: DATABASE_URL (REQUIRED), PORT (OUT_OF_RANGE), NODE_ENV (REQUIRED). ' +
+        'Invalid environment configuration: DATABASE_URL (REQUIRED), PORT (OUT_OF_RANGE), NODE_ENV (REQUIRED), ' +
+          'OTP_PROVIDER (REQUIRED), JWT_ACCESS_SECRET (REQUIRED). ' +
           'See docs/standards/input-validation.md section 6 and .env.example.',
       );
     });
@@ -218,6 +408,11 @@ describe('validateEnv', () => {
   });
 
   describe('input-validation.md section 6 (drift guard)', () => {
+    const providerCases = [
+      ['ALLOW_FAKE_OTP', FAKE, [undefined, 'false']],
+      ['FAKE_OTP_CODE', FAKE, [undefined, '12']],
+      ['TWOFACTOR_API_KEY', VALID, [undefined, ' key']],
+    ] as const;
     const doc = readFileSync(
       new URL('../../docs/standards/input-validation.md', import.meta.url),
       'utf8',
@@ -234,6 +429,9 @@ describe('validateEnv', () => {
       ['DATABASE_URL', [undefined, 'not a url']],
       ['PORT', ['80a', '0']],
       ['NODE_ENV', [undefined, 'staging']],
+      ['OTP_PROVIDER', [undefined, 'sms']],
+      ['TRUST_PROXY_HOPS', ['1x', '11']],
+      ['JWT_ACCESS_SECRET', [undefined, 'short']],
     ] as const)('%s: the reasons the code can give are exactly the ones the doc lists', (variable, badValues) => {
       const produced = new Set<string>();
       for (const value of badValues) {
@@ -242,6 +440,21 @@ describe('validateEnv', () => {
       }
       expect(docReasons(variable).size, 'section 6 table row could not be read').toBeGreaterThan(0);
       expect(produced).toEqual(docReasons(variable));
+    });
+
+    it.each(providerCases)('%s: the reasons the code can give are exactly the ones the doc lists', (variable, base, badValues) => {
+      const produced = new Set<string>();
+      for (const value of badValues) {
+        for (const reason of reasonsFor(variable, { ...base, [variable]: value })) produced.add(reason);
+      }
+      expect(docReasons(variable).size, 'section 6 table row could not be read').toBeGreaterThan(0);
+      expect(produced).toEqual(docReasons(variable));
+    });
+
+    it('OTP_PROVIDER: the production refusal uses a reason the doc lists', () => {
+      const production = reasonsFor('OTP_PROVIDER', { ...FAKE, NODE_ENV: 'production' });
+      expect(production).toEqual(['NOT_ALLOWED']);
+      expect(docReasons('OTP_PROVIDER').has('NOT_ALLOWED')).toBe(true);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { ERROR_REGISTRY, type ErrorCode } from './error-registry.js';
 
-const ALLOWED_STATUSES = [400, 401, 403, 404, 409, 422, 429, 500];
+const ALLOWED_STATUSES = [400, 401, 403, 404, 409, 422, 429, 500, 503];
 
 const TABLE_CHANGED =
   'response-format.md section 5 table format changed or has rows this test cannot read';
@@ -44,9 +44,9 @@ describe('ERROR_REGISTRY', () => {
     expect(docRows.length, TABLE_CHANGED).toBeGreaterThanOrEqual(13);
   });
 
-  it('has exactly the 13 codes documented in response-format.md', () => {
-    expect(docRows, TABLE_CHANGED).toHaveLength(13);
-    expect(codes).toHaveLength(13);
+  it('has exactly the 19 codes documented in response-format.md', () => {
+    expect(docRows, TABLE_CHANGED).toHaveLength(19);
+    expect(codes).toHaveLength(19);
     expect([...codes].sort()).toEqual(docRows.map((row) => row.code).sort());
   });
 

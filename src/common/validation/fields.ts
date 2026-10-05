@@ -89,6 +89,19 @@ export function Phone(limits: { minDigits: number; maxDigits: number }): FieldTy
   };
 }
 
+// An Indian mobile number on the wire: exactly "+91", then 10 digits, the first 6 to 9. It is a
+// separate type, not a tightened Phone(), because Phone() is the generic E.164 type that other
+// countries or uses may need. Nothing is trimmed, stripped or prefixed: a wrong shape is rejected.
+export const INDIAN_MOBILE_PATTERN = /^\+91[6-9][0-9]{9}$/;
+export function IndianMobile(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || INDIAN_MOBILE_PATTERN.test(v)),
+    ],
+  };
+}
+
 const UTC_SHAPE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/;
 function parseUtc(value: unknown): number | undefined {
   if (!isString(value)) return undefined;

@@ -30,6 +30,9 @@ describe('the route input check over the real application', () => {
   beforeAll(async () => {
     vi.stubEnv('DATABASE_URL', FAKE_DATABASE_URL);
     vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('OTP_PROVIDER', 'twofactor');
+    vi.stubEnv('TWOFACTOR_API_KEY', 'placeholder-2factor-api-key');
+    vi.stubEnv('JWT_ACCESS_SECRET', 'placeholder-jwt-secret-0123456789abcdef');
     ({ AppModule } = await import('../../app.module.js'));
     moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
@@ -51,7 +54,7 @@ describe('the route input check over the real application', () => {
   it('the scan sees the real controllers (it is not vacuous)', () => {
     const names = controllersOf(app).map((c) => c.name);
     expect(names).toContain('AppController');
-    expect(names).toContain('AuthController');
+    expect(names).toContain('RidesController');
   });
 
   it('every production route passes the check', () => {
@@ -59,17 +62,12 @@ describe('the route input check over the real application', () => {
     expect(findRouteInputProblems(controllersOf(app))).toEqual([]);
   });
 
-  it('the allowlist has exactly one entry', () => {
-    expect(ROUTE_INPUT_ALLOWLIST).toEqual([
-      { controller: 'AuthController', handler: 'login', reason: 'remove in F4' },
-    ]);
+  it('the allowlist is empty', () => {
+    expect(ROUTE_INPUT_ALLOWLIST).toEqual([]);
   });
 
-  it('without the allowlist, the login route is the ONLY production violation', () => {
-    const problems = findRouteInputProblems(controllersOf(app), []);
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('AuthController.login');
-    expect(problems[0]).toContain('reads one named value');
+  it('with an empty allowlist there are still no production violations', () => {
+    expect(findRouteInputProblems(controllersOf(app), [])).toEqual([]);
   });
 
   it('a real controller that breaks the rule would fail this test', async () => {

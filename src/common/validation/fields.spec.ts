@@ -1,6 +1,7 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
+  IndianMobile,
   Latitude,
   Longitude,
   Money,
@@ -47,6 +48,12 @@ class Cash {
 }
 class Contact {
   @Required(Phone({ minDigits: 8, maxDigits: 12 })) phone!: string;
+}
+class IndianContact {
+  @Required(IndianMobile()) phoneNumber!: string;
+}
+class OptionalIndianContact {
+  @Optional(IndianMobile()) phoneNumber?: string;
 }
 class Wide {
   @Required(
@@ -197,6 +204,61 @@ describe('phone', () => {
 
   it('rejects a number as WRONG_TYPE', async () => {
     expect(await problems(Contact, { phone: 919876543210 })).toEqual([['phone', 'WRONG_TYPE']]);
+  });
+});
+
+describe('IndianMobile', () => {
+  it.each(['+919477172214', '+916000000000', '+917123456789', '+918123456789', '+919999999999'])(
+    'accepts %j',
+    async (phoneNumber) => {
+      expect(await problems(IndianContact, { phoneNumber })).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['9477172214', 'no +91'],
+    ['+915477172214', 'first digit 5'],
+    ['+910477172214', 'first digit 0'],
+    ['+91947717221', '9 digits'],
+    ['+9194771722141', '11 digits'],
+    ['+91 9477172214', 'space inside'],
+    ['+91-9477172214', 'dash inside'],
+    ['+449477172214', 'not India'],
+    ['919477172214', 'no plus'],
+    ['0919477172214', 'zero instead of plus'],
+    [' +919477172214', 'leading space'],
+    ['+919477172214 ', 'trailing space'],
+    ['+919477172214\n', 'trailing newline'],
+    ['+91٩٤٧٧١٧٢٢١٤', 'non-ASCII digits'],
+    ['+９１９４７７１７２２１４', 'full-width characters'],
+    ['', 'empty string'],
+  ])('rejects %j as INVALID_FORMAT (%s)', async (phoneNumber) => {
+    expect(await problems(IndianContact, { phoneNumber })).toEqual([['phoneNumber', 'INVALID_FORMAT']]);
+  });
+
+  it.each([[9477172214], [919477172214], [true], [{}], [['+919477172214']]])(
+    'rejects the non-string %j as WRONG_TYPE',
+    async (phoneNumber) => {
+      expect(await problems(IndianContact, { phoneNumber })).toEqual([['phoneNumber', 'WRONG_TYPE']]);
+    },
+  );
+
+  it('a missing, undefined or null value is REQUIRED when the field is required', async () => {
+    expect(await problems(IndianContact, {})).toEqual([['phoneNumber', 'REQUIRED']]);
+    expect(await problems(IndianContact, { phoneNumber: undefined })).toEqual([['phoneNumber', 'REQUIRED']]);
+    expect(await problems(IndianContact, { phoneNumber: null })).toEqual([['phoneNumber', 'REQUIRED']]);
+  });
+
+  it('when optional: omitted is fine, null is WRONG_TYPE, and a bad shape is still rejected', async () => {
+    expect(await problems(OptionalIndianContact, {})).toEqual([]);
+    expect(await problems(OptionalIndianContact, { phoneNumber: null })).toEqual([['phoneNumber', 'WRONG_TYPE']]);
+    expect(await problems(OptionalIndianContact, { phoneNumber: '9477172214' })).toEqual([['phoneNumber', 'INVALID_FORMAT']]);
+  });
+
+  it('does not change the value it checks (no trimming, no +91 added)', async () => {
+    const instance = plainToInstance(IndianContact, { phoneNumber: ' 9477172214' });
+    await validate(instance, OPTIONS);
+    expect(instance.phoneNumber).toBe(' 9477172214');
   });
 });
 

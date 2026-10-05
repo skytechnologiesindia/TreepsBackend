@@ -83,7 +83,7 @@ class ChildController extends ParentController {}
 class MissingMetadataController {
   @Post() create(@Body() body: BodyDto) { return body; }
 }
-// same handler name as the allowlisted one, on a differently named class
+// two fixtures for the allowlist mechanism: the allowlist is passed in by the test
 @Controller('auth')
 class AuthController {
   @Post('login') login(@Body('idToken') idToken: string) { return idToken; }
@@ -201,12 +201,14 @@ describe('findRouteInputProblems', () => {
   });
 
   describe('the allowlist', () => {
+    const TEST_ALLOWLIST = [{ controller: 'AuthController', handler: 'login', reason: 'test only' }];
+
     it('skips the allowlisted controller and handler by name', () => {
-      expect(findRouteInputProblems([AuthController])).toEqual([]);
+      expect(findRouteInputProblems([AuthController], TEST_ALLOWLIST)).toEqual([]);
     });
 
     it('does not skip the same handler on a differently named class', () => {
-      const problems = findRouteInputProblems([OtherAuthController]);
+      const problems = findRouteInputProblems([OtherAuthController], TEST_ALLOWLIST);
       expect(problems.join('\n')).toContain('OtherAuthController.login');
       expect(problems.join('\n')).toContain('Allowlist entry AuthController.login');
     });
@@ -218,10 +220,8 @@ describe('findRouteInputProblems', () => {
       expect(problem).toContain('Allowlist entry Gone.nothing (remove in F4) matches no route. Remove it.');
     });
 
-    it('has exactly one production entry', () => {
-      expect(ROUTE_INPUT_ALLOWLIST).toEqual([
-        { controller: 'AuthController', handler: 'login', reason: 'remove in F4' },
-      ]);
+    it('has no production entries', () => {
+      expect(ROUTE_INPUT_ALLOWLIST).toEqual([]);
     });
   });
 
@@ -261,9 +261,8 @@ describe('findRouteInputProblems', () => {
 
 describe('assertRouteInputs on a Nest app', () => {
   it('throws one error that lists every problem, with Controller.handler and the rule references', async () => {
-    // AuthController is included so the production allowlist entry is not reported as stale.
     const moduleRef = await Test.createTestingModule({
-      controllers: [InterfaceController, NamedController, AuthController],
+      controllers: [InterfaceController, NamedController],
     }).compile();
     const app = moduleRef.createNestApplication();
     let message = '';
@@ -294,19 +293,12 @@ describe('assertRouteInputs on a Nest app', () => {
     await moduleRef.close();
   });
 
-  it('passes for an app whose routes use DTO classes, plus the one allowlisted login route', async () => {
+  it('passes for an app whose routes use DTO classes', async () => {
     const moduleRef = await Test.createTestingModule({
-      controllers: [GoodController, AuthController],
+      controllers: [GoodController],
     }).compile();
     const app = moduleRef.createNestApplication();
     expect(() => assertRouteInputs(app)).not.toThrow();
-    await moduleRef.close();
-  });
-
-  it('reports the production allowlist entry as stale when no such route exists', async () => {
-    const moduleRef = await Test.createTestingModule({ controllers: [GoodController] }).compile();
-    const app = moduleRef.createNestApplication();
-    expect(() => assertRouteInputs(app)).toThrow(/Allowlist entry AuthController\.login/);
     await moduleRef.close();
   });
 

@@ -19,6 +19,9 @@ describe('AppController (e2e)', () => {
   beforeAll(async () => {
     vi.stubEnv('DATABASE_URL', FAKE_DATABASE_URL);
     vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('OTP_PROVIDER', 'twofactor');
+    vi.stubEnv('TWOFACTOR_API_KEY', 'placeholder-2factor-api-key');
+    vi.stubEnv('JWT_ACCESS_SECRET', 'placeholder-jwt-secret-0123456789abcdef');
     const { AppModule } = (await import('./../src/app.module.js')) as { AppModule: Type<unknown> };
 
     moduleFixture = await Test.createTestingModule({ imports: [AppModule] })
@@ -66,11 +69,12 @@ describe('AppController (e2e)', () => {
     expectNotFoundEnvelope(await request(app.getHttpServer()).get('/v2/x'));
   });
 
-  it('POST /auth/login without a version is 404, and POST /v1/auth/login is served', async () => {
-    expectNotFoundEnvelope(await request(app.getHttpServer()).post('/auth/login').send({}));
-    // Only "the route exists" is asserted; the login behavior is frozen until F4.
-    const versioned = await request(app.getHttpServer()).post('/v1/auth/login').send({});
-    expect(versioned.status).not.toBe(404);
+  it('POST /rides/estimate without a version is 404, and POST /v1/rides/estimate is served', async () => {
+    expectNotFoundEnvelope(await request(app.getHttpServer()).post('/rides/estimate').send({}));
+    // Only "the route exists" is asserted: an empty body is rejected by validation, not 404.
+    const versioned = await request(app.getHttpServer()).post('/v1/rides/estimate').send({});
+    expect(versioned.status).toBe(400);
+    expect(versioned.body.error.code).toBe('INVALID_INPUT');
   });
 
   it('an unknown route returns 404 with the error envelope', async () => {

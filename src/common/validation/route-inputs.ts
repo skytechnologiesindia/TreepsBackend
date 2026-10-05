@@ -15,10 +15,9 @@ export interface RouteInputAllowance {
   reason: string;
 }
 
-// Routes that break the rules today. Each entry says when it must be removed.
-export const ROUTE_INPUT_ALLOWLIST: readonly RouteInputAllowance[] = [
-  { controller: 'AuthController', handler: 'login', reason: 'remove in F4' },
-];
+// Routes that break the rules today. Each entry says when it must be removed. It is empty: the
+// one old entry (the Firebase login) was removed with that code. Adding one needs an owner decision.
+export const ROUTE_INPUT_ALLOWLIST: readonly RouteInputAllowance[] = [];
 
 const CHECKED: Readonly<Record<number, string>> = {
   [RouteParamtypes.BODY]: '@Body()',

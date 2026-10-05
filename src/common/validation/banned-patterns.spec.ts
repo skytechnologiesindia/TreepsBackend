@@ -40,9 +40,7 @@ const BANNED: BannedPattern[] = [
 ];
 
 // Files allowed to break a rule, with the reason. Growing this list needs an owner decision.
-const ALLOWLIST: Readonly<Record<string, string>> = {
-  'src/auth/auth.controller.ts': 'remove in F4',
-};
+const ALLOWLIST: Readonly<Record<string, string>> = {};
 
 function blankOutComments(source: string): string {
   return source
@@ -195,10 +193,9 @@ describe('banned patterns (input-validation.md rules 5 and 13)', () => {
     });
   });
 
-  it('skips only allowlisted files, and the allowlist has exactly one entry', () => {
+  it('has an empty allowlist, so every file is checked', () => {
     const code = "login(@Body('idToken') idToken: string) {}";
-    expect(findBannedPatterns('src/auth/auth.controller.ts', code)).toEqual([]);
     expect(findBannedPatterns('src/other/auth.controller.ts', code)).not.toEqual([]);
-    expect(ALLOWLIST).toEqual({ 'src/auth/auth.controller.ts': 'remove in F4' });
+    expect(ALLOWLIST).toEqual({});
   });
 });
