@@ -1,0 +1,54 @@
+enum OtpPurpose {
+  RIDER_AUTH
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+}
+
+// One row per OTP sent. The OTP itself is never stored; the provider checks it.
+model OtpSession {
+  id                    String     @id @default(uuid())
+  phoneNumber           String
+  purpose               OtpPurpose
+  providerSessionId     String // Server only, never returned to the app
+  attempts              Int        @default(0)
+  expiresAt             DateTime   @db.Timestamptz(3)
+  verifiedAt            DateTime?  @db.Timestamptz(3) // Set once when the provider confirms the code (single use)
+  consumedAt            DateTime?  @db.Timestamptz(3) // Set when the session is finished
+  registrationTokenHash String?    @unique // SHA-256 of the one-time registration token
+  registrationExpiresAt DateTime?  @db.Timestamptz(3)
+  createdAt             DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([phoneNumber, createdAt])
+}
+
+// One row per rider install.
+model Device {
+  id            String         @id @default(uuid())
+  riderId       String
+  rider         Rider          @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  deviceId      String // The app's install id; id above is the server's uuid
+  platform      DevicePlatform
+  appVersion    String
+  fcmToken      String?
+  lastSeenAt    DateTime       @db.Timestamptz(3)
+  refreshTokens RefreshToken[]
+
+  @@unique([riderId, deviceId])
+}
+
+// Revoked rows are kept: presenting a rotated token again is how reuse is detected.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique // SHA-256 of the token; the token itself is never stored
+  riderId   String
+  deviceId  String
+  device    Device    @relation(fields: [riderId, deviceId], references: [riderId, deviceId], onDelete: Cascade)
+  expiresAt DateTime  @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([riderId, deviceId])
+}
