@@ -6,7 +6,7 @@ The filter always answers in the standard error shape, so the apps parse every r
 
 For an Express developer new to NestJS. Terms are in [nest-for-express-devs.md](nest-for-express-devs.md). Every path below is a real file in this repo, and every reply was captured by running the real app (see the end).
 
-**The request:** `POST /v1/demo` with `{"name":"Asha","amount":5000}`. No real route with a body and a DTO exists yet, so the captured runs use a throwaway controller wired by the same `setupApp` the tests use. The real `POST /v1/auth/login` is quoted where it applies.
+**The request:** `POST /v1/demo` with `{"name":"Asha","amount":5000}`. The captured runs use a throwaway controller wired by the same `setupApp` the tests use. The real `POST /v1/rides/estimate` (L0) is quoted where it applies.
 
 ## Before any request: startup
 `src/main.ts` runs in this order: create the app, `setupApp`, `assertRouteInputs`, the database check, `listen`. A failed check exits with code 1 and nothing is served.
@@ -34,7 +34,7 @@ Order of the steps, from a trace of the demo route: `guard > interceptor before 
 | handler throws `Error('secret-db-password-xyz')` | 500 | INTERNAL_ERROR with the fixed message; the secret is not in the reply |
 | malformed JSON, or no body | 400 | INVALID_INPUT, `field` null |
 | `POST /demo` (no `/v1`) | 404 | NOT_FOUND |
-| real `POST /v1/auth/login` with `{}` | 401 | UNAUTHORIZED |
+| real `POST /v1/rides/estimate` with `{}` | 400 | INVALID_INPUT |
 
 Every reply, including the failures, carried an `X-Request-Id` header equal to the body's `requestId`.
 
@@ -53,7 +53,7 @@ Every reply, including the failures, carried an `X-Request-Id` header equal to t
 - Startup configuration (`src/config/`): a bad `DATABASE_URL`, `PORT` or `NODE_ENV`, or an unreachable database, stops the server.
 
 ## Deliberately not done yet
-- **Authentication (F4).** Until F4 no route has authentication. `POST /v1/auth/login` is unvalidated and the mock-token hole is open; do not deploy.
+- **Authentication (F4).** Until F4 no route has authentication (the L0 estimate route is open, decision 81); do not deploy. The old Firebase login and its mock token were removed on 2026-10-05 (decision 146).
 - **Rate limiting.** No rate limiter exists, although RATE_LIMITED is in the registry and every API needs one. It comes with F4 because it needs the user id.
 - **The models (F5).** Rider, driver, ride and quote tables and their APIs.
 - **An access log.** The filter logs only the request id, code and status, never URLs or bodies.

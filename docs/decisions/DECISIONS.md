@@ -157,4 +157,161 @@ Format: date, decision, reason. "TO DECIDE" means the reason is not recorded yet
 76. **Controllers never write the version in their path; a banned-patterns test enforces it.**
     Reason: the default version already adds the prefix, so a written `v1` would be served at `/v1/v1/...`.
 77. **Login uses Firebase phone authentication, not our own OTP.**
-    Reason: OTP SMS delivery in India needs DLT registration, and Firebase handles delivery and abuse limits, so far less security-critical code has to be written and maintained. The costs are a dependency on Google and SMS charges beyond the free tier.
+    Reason: OTP SMS delivery in India needs DLT registration, and Firebase handles delivery and abuse limits, so far less security-critical code has to be written and maintained. The costs are a dependency on Google and SMS charges beyond the free tier. **Superseded by decision 84 (2Factor OTP).**
+
+## 2026-09-30
+
+78. **L0 returns FAKE fixed fares: MINI 11100, SEDAN 22200, XL 33300 paise, the whole fare in `baseFare` and 0 in the other five breakdown lines. They are labelled FAKE in code and docs and never described as rates.**
+    Reason: the numbers are obviously fake, so nobody mistakes them for real rates.
+79. **L0 also returns fixed FAKE `distanceMeters` 5000, `durationSeconds` 900, `etaMinutes` 5 and `expiresInSeconds` 180.**
+    Reason: the reply keeps its final shape, so the apps can build against it now.
+80. **`POST /v1/rides/estimate` replies 200, not 201.**
+    Reason: the estimate creates nothing, and changing a status later would break the apps.
+81. **L0 has no login: the route is open and must not be deployed until F4.**
+    Reason: F4 does not exist yet, and `api/estimate.md` already says the estimate needs real auth before deployment.
+82. **L0 checks degree ranges only (no Ranchi bounds check). Address text is 1 to 200 characters, an L0 placeholder to be revisited.**
+    Reason: the Ranchi bounds are TO DECIDE, and a wrong bound would block real riders.
+83. **Coach mode: the owner types the code, and the agent edits docs only, shows one small piece at a time and checks the owner's typing.**
+    Reason: the owner wants to learn NestJS and Prisma by writing the code.
+
+## 2026-10-04
+
+On 2026-10-05 the owner approved the rider auth docs (decision 129); entries that were PROPOSED are now marked APPROVED 2026-10-05. "Reason: TO DECIDE" means the owner has not given one.
+
+84. **Rider login and registration use a 2Factor OTP (AUTOGEN mode), not Firebase phone authentication. This supersedes decision 77.**
+    Reason: TO DECIDE (the owner has not recorded one). Decision 77's reason still describes what is given up: DLT registration for India SMS and the provider's abuse limits now become our work (who registers with DLT: TO DECIDE). The mock Firebase code and the `src/auth/` files are removed in the F4 cleanup (the "remove in F4" allowlist entries go with them). Done on 2026-10-05, decision 146.
+85. **Stated by the owner on 2026-10-04: Rider and Driver are separate tables; `registeredCity` and `registeredState` are plain text, stored as Google Maps returns them (trimmed), nullable, and never block registration; the register flow is send-otp (2Factor session id stored on the server, never returned) then register (the server verifies the OTP, creates the Rider, issues an access and a refresh token, the refresh token stored hashed); the global validation pipe keeps `whitelist` and `forbidNonWhitelisted`.**
+    Reason: TO DECIDE. The pipe part is already true (decision 57). "Trimmed" is recorded in `api/rider-register.md` as one explicit, flagged normalization (decision 3's no-silent-coercion rule otherwise applies).
+86. **Out of the MVP: `utmSource`, `utmCampaign`, `termsAcceptedAt`, `termsVersion`, `privacyVersion`, `marketingConsent`, `referralCode`, `referredById`, emergency contacts, and the spreadsheet rows the owner highlighted as removed.**
+    Reason: TO DECIDE. The spreadsheet itself has not been read yet, so the highlighted rows are not listed here.
+87. **APPROVED 2026-10-05: the Rider table keeps its existing column names except that `firstName` and `lastName` are replaced by one `fullName` column.**
+    Reason: TO DECIDE. Migration impact is in `api/rider-register.md`: the dev `Rider` table had 0 rows on 2026-10-04.
+88. **APPROVED 2026-10-05: the phone is India only. The wire and storage format is E.164 `+91` plus 10 digits starting 6 to 9, following the repo's shared `phone` type (not normalized). The server never adds `+91`.**
+    Reason: the repo's `phone` type is E.164 and not normalized (`input-validation.md` section 2), so one number has one spelling and one account. Stated by the owner: the client would send 10 digits; the repo rule won.
+89. **APPROVED 2026-10-05: the OTP is 6 digits as text, valid 5 minutes, locked after 5 wrong attempts, 30 seconds between sends, at most 5 sends per phone per hour, single use, bound to a purpose (`RIDER_REGISTER`, `RIDER_LOGIN`). Only the newest session for a phone and purpose is valid.**
+    Reason: TO DECIDE.
+90. **APPROVED 2026-10-05: rate limits are send-otp 5 per hour per phone and 20 per hour per IP; register 10 per hour per IP. The per-IP counter lives in a guard, not a controller.**
+    Reason: every endpoint needs a limit (`api-standard.md` section 1). Raw request access is banned in controllers (decision 59), so the IP is read in a guard. IP source, proxy trust and counter storage: TO DECIDE.
+91. **APPROVED 2026-10-05: calls to 2Factor have a 5 second timeout and no automatic retry; a failure is `OTP_PROVIDER_ERROR`.**
+    Reason: a retry can send a second SMS (stated by the owner).
+92. **APPROVED 2026-10-05: send-otp and register are idempotent by nature (unique phone, single-use OTP). There is no `Idempotency-Key` header in the MVP.**
+    Reason: TO DECIDE.
+93. **APPROVED 2026-10-05: access token 15 minutes; refresh token 30 days, one per device, rotated on every refresh; presenting an already-rotated token revokes that device's tokens; refresh tokens are stored as a SHA-256 hash (Node `crypto`).**
+    Reason: TO DECIDE. The refresh route needs its own doc (`rider-refresh.md`).
+94. **APPROVED 2026-10-05: the register body accepts only `phoneNumber`, `otp`, `fullName`, optional `email`, `registeredCity`, `registeredState`, and `device { deviceId, platform, appVersion, fcmToken? }`.**
+    Reason: unknown fields are rejected (decision 38), so `status`, `role`, `isPhoneVerified` and similar can never come from the client.
+95. **APPROVED 2026-10-05: `fullName` is 2 to 100 characters, Unicode letters plus space, `.`, `'`, `-`. Leading or trailing spaces and double spaces are rejected with a reason code, not fixed. `email` is optional, at most 254 characters, and an address with an uppercase letter or a space is rejected, not lowercased. `registeredCity` and `registeredState` are optional, nullable, 1 to 100 characters.**
+    Reason: decision 39 forbids silent trimming and lowercasing, and a Postgres unique index is case-sensitive. The two city and state fields are the one documented trim, flagged in `api/rider-register.md`.
+96. **APPROVED 2026-10-05: Rider gains `status` (`ACTIVE`, `SUSPENDED`, `BLOCKED`, `DELETED`, default `ACTIVE`), `registeredCity`, `registeredState`, `lastLoginAt`, `deletedAt`. `isPhoneVerified` defaults to `false` and register sets it to `true`. `gender` becomes an enum and `dateOfBirth` becomes a date-only column; neither is collected at register.**
+    Reason: TO DECIDE. The enum values for `gender` are TO DECIDE.
+97. **APPROVED 2026-10-05: new tables `OtpSession`, `RefreshToken` and `Device`, with the existing conventions (text uuid ids, camelCase, no `@@map`), every foreign key indexed, and `@db.Timestamptz(3)` on the new and changed timestamp columns.**
+    Reason: `timestamptz` stores a real instant, matching "timestamps are UTC" (CLAUDE.md rule 11). The proposed models are in `api/rider-register.md`, not applied.
+98. **APPROVED 2026-10-05: dates on the wire are ISO UTC, per `api-standard.md`. Apps and admin show IST as `DD-MM-YYYY HH:MM:SS`. `dateOfBirth`, when collected later, is date-only `YYYY-MM-DD`.**
+    Reason: TO DECIDE. A date-only shared type does not exist yet (`input-validation.md` says "no date-only"); it must be added to that doc before a DOB field is built. This replaces the earlier idea of an incoming `DD-MM-YYYY` format.
+99. **Deferred, not in this feature: ratings and ride counters, block reason and audit columns, referral, UTM, terms and consent, emergency-contact and saved-place endpoints.**
+    Reason: TO DECIDE. The `EmergencyContact` and `SavedPlace` tables stay as they are.
+
+## 2026-10-05
+
+Final Rider data model, given by the owner. Entries 100 to 108 refine or replace the PROPOSED entries 87, 89, 96, 97 and 99. Entries marked APPROVED 2026-10-05 were PROPOSED in the docs drafts and approved by decision 129. "Reason: TO DECIDE" means the owner has not given one.
+
+100. **The Rider data model is final as in `api/rider-register.md` (Data model). Existing Rider columns not listed as changed stay (`email`, `profilePicture`, `isProfileComplete`, `createdAt`, `updatedAt`, the `SavedPlace` and `EmergencyContact` relations).**
+     Reason: TO DECIDE.
+101. **`firstName` and `lastName` are replaced by one `fullName String @db.VarChar(100)`.**
+     Reason: TO DECIDE. Confirms decision 87 and fixes the database length. The migration uses a hand-edited SQL (add nullable, backfill, `NOT NULL`, drop) written after `migrate dev --create-only`; the dev `Rider` table had 0 rows on 2026-10-04.
+102. **`Rider.status` is the enum `RiderStatus` (`ACTIVE`, `SUSPENDED`, `BLOCKED`, `DELETED`), default `ACTIVE`. `isPhoneVerified` and the new `isEmailVerified` both default to `false`. `lastLoginAt` and `deletedAt` are `Timestamptz` and nullable. `registeredCity` and `registeredState` are nullable plain text. `gender` is an optional enum and `dateOfBirth` an optional `@db.Date`; neither is collected at register.**
+     Reason: TO DECIDE. `isEmailVerified` is new compared with decision 96; nothing verifies an email in the MVP, so it stays `false`.
+103. **`OtpSession` has the single purpose `RIDER_AUTH` (enum `OtpPurpose`), because send-otp is one route for login and register. This replaces the `RIDER_REGISTER` and `RIDER_LOGIN` values of decision 89. The columns are `id`, `phoneNumber`, `purpose`, `providerSessionId`, `attempts` (default 0), `expiresAt`, `verifiedAt?`, `consumedAt?`, `registrationTokenHash?` (unique), `registrationExpiresAt?`, `createdAt`, with an index on `(phoneNumber, createdAt)`.**
+     Reason: TO DECIDE. A driver flow adds its own value later (for example `DRIVER_AUTH`). Because the registration-token columns exist, the flow is probably send-otp, a verify step, then register with a registration token instead of the OTP; that flow is **not decided** (see the Flow note in `api/rider-register.md`).
+104. **`Device` has `id`, `riderId`, `deviceId`, `platform` (enum `DevicePlatform`: `ANDROID`, `IOS`), `appVersion`, `fcmToken?`, `lastSeenAt`, and a unique `(riderId, deviceId)`.**
+     Reason: TO DECIDE. The unique also serves as the index for `riderId`.
+105. **`RefreshToken` has `id`, `tokenHash` (unique, SHA-256), `riderId`, `deviceId`, `expiresAt`, `revokedAt?`, `createdAt`, a relation to `Device` on `(riderId, deviceId)`, and an index on `(riderId, deviceId)`. Revoked rows are kept.**
+     Reason: a rotated token that is presented again must still be found to detect reuse (decision 93).
+106. **New and changed timestamp columns use `@db.Timestamptz(3)`.**
+     Reason: `timestamptz` stores a real instant, matching "timestamps are UTC" (CLAUDE.md rule 11); confirms decision 97. The existing `createdAt` and `updatedAt` are changed by the same migration.
+107. **Enums are `RiderStatus`, `Gender` (values TO DECIDE), `OtpPurpose` and `DevicePlatform`. They are shared across the whole schema folder, so a future Driver model reuses `Gender` and `DevicePlatform`.**
+     Reason: Prisma enums are global; there is no enum in the schema today, so there is no name clash.
+108. **Deferred, not added: ratings, ride counters, block audit columns, referral, UTM, terms and consent, `profilePhotoKey`, `preferredLanguage`, `signupSource`, `registrationIpHash`, `tokenVersion`.**
+     Reason: TO DECIDE. Extends decision 99.
+
+109. **APPROVED 2026-10-05: rider authentication is one phone-OTP flow with five routes under `/v1/rider/auth/`: `send-otp`, `verify-otp`, `register`, `refresh`, `logout`. Controllers write `@Controller('rider/auth')` and never `v1` (decision 76).**
+     Reason: TO DECIDE. Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `rider-refresh.md`, `rider-logout.md`. Supersedes the two-route split of decisions 88 to 94 where they differ.
+110. **APPROVED 2026-10-05: `send-otp` never reads the Rider table and replies the same for every phone.**
+     Reason: the route cannot be used to find out which phone numbers have accounts. The cost is an SMS for a SUSPENDED or BLOCKED phone.
+111. **APPROVED 2026-10-05: `verify-otp` takes `phoneNumber`, `otp` and `device { deviceId, platform, appVersion, fcmToken? }`. An ACTIVE rider gets `isNewRider: false`, the rider and the tokens (this is login). An unknown phone gets `isNewRider: true` and a one-time registration token. A SUSPENDED or BLOCKED rider gets `ACCOUNT_BANNED`. A DELETED rider: `ACCOUNT_BANNED` (decision 128). Both successes reply 200.**
+     Reason: TO DECIDE. The account state is checked only after the caller proves they hold the phone.
+112. **APPROVED 2026-10-05: `register` takes `registrationToken`, `fullName`, optional `email`, `registeredCity`, `registeredState`, and `device`. It no longer takes `otp` or `phoneNumber` (the phone comes from the verified session). It creates the Rider with `isPhoneVerified` true and replies 201 with the rider and the tokens. This replaces the body of decision 94.**
+     Reason: the client cannot change the verified phone between verify and register, and the OTP is used exactly once.
+113. **APPROVED 2026-10-05: the registration token is 32 random bytes (`crypto.randomBytes`, base64url), only its SHA-256 is stored in `OtpSession.registrationTokenHash`, valid 10 minutes, single use (a conditional update sets `consumedAt`).**
+     Reason: TO DECIDE. The OTP itself is single use through a conditional update of `verifiedAt`.
+114. **APPROVED 2026-10-05: OTP rules: 6 digits, valid 5 minutes, at most 5 wrong attempts per session (an attempt is reserved atomically before the provider is called and given back on a provider failure), 30 second resend cooldown, at most 5 sends per phone per hour, single use. Only the newest session for a phone is valid. Purpose is `RIDER_AUTH` only. This refines decisions 89 and 103.**
+     Reason: TO DECIDE. Parallel guesses must not exceed the attempt cap.
+115. **APPROVED 2026-10-05: rate limits use an in-memory guard (no Redis; built hand-written, decision 147): `send-otp` 20 per hour per IP, `register` 10 per hour per IP; the per-phone send limits are counted from `OtpSession` rows. Limits for `verify-otp`, `refresh` and `logout`: TO DECIDE. IP source and proxy trust: TO DECIDE. This refines decision 90.**
+     Reason: no Redis exists. An in-memory counter resets on restart and is per server instance, so with several instances the real limit is higher.
+116. **APPROVED 2026-10-05: tokens: access 15 minutes (JWT); refresh 30 days, opaque random, one per device, stored as a SHA-256 hash. `refresh` takes `refreshToken` and `deviceId`, rotates the token, and replies 200 with the new pair. Presenting a revoked token revokes all tokens of that device and replies `UNAUTHORIZED`. `logout` takes `refreshToken`, is public (the token is the credential), revokes the device's tokens and replies 200 with `data: null`, also for an unknown token. Sliding versus fixed refresh lifetime, a reuse grace window and a JWT-guarded logout: TO DECIDE. This refines decision 93.**
+     Reason: TO DECIDE. Revoked rows are kept (decision 105) so reuse can be detected.
+117. **APPROVED 2026-10-05: the code depends on an `OtpProvider` interface (`send`, `verify`) with two implementations: the real 2Factor client (5 second timeout, no automatic retry, any failure is `OTP_PROVIDER_ERROR` 503) and a fake one for development and test. The app refuses to start if the fake is selected and `NODE_ENV` is `production`. The new environment variables each need a rule in `input-validation.md` section 6 and a line in `.env.example` in the same commit.**
+     Reason: a retry can send a second SMS (stated by the owner); a swappable provider lets the flow be tested without sending SMS. Known gap: the fake could still be selected on a deployed `development` server (mitigation TO DECIDE).
+118. **APPROVED 2026-10-05: error registry changes for the rider flow (response-format.md section 5): keep `OTP_INVALID` 422, `OTP_EXPIRED` 422, `OTP_ATTEMPTS_EXCEEDED` 429, `OTP_PROVIDER_ERROR` 503 (needs a 503 row in section 4), `ACCOUNT_BANNED` 403, `RATE_LIMITED` 429; add `REGISTRATION_TOKEN_INVALID` 422 and `EMAIL_IN_USE` 409; drop `ACCOUNT_EXISTS` everywhere (it was only ever a doc row). A second registration for a phone that already has a Rider replies the existing `CONFLICT`. The registry would have 19 codes.**
+     Reason: TO DECIDE. `ACCOUNT_EXISTS` would have revealed which phones have accounts; the unified flow makes it unnecessary.
+119. **APPROVED 2026-10-05 (requested by the owner): exception to the admin-visibility rule in CLAUDE.md: the rider auth routes ship before admin authentication exists. The three admin endpoints in `api/rider-register.md` (list riders, rider detail, rider metrics) are built when admin auth exists, each with its own doc. Until then a rider's `status` can only be changed by hand in the database.**
+     Reason: TO DECIDE. No admin model, guard or JWT exists, and the pagination shape is TO DECIDE. CLAUDE.md itself is not edited by this entry.
+
+120. **The fake OTP provider needs two settings, `OTP_PROVIDER=fake` AND `ALLOW_FAKE_OTP=true`. The app refuses to start if the fake provider is selected and `NODE_ENV` is `production`, even with `ALLOW_FAKE_OTP=true`. Both variables are documented in `api/rider-send-otp.md` (startup rules) and get a rule in `input-validation.md` section 6 and a line in `.env.example` in the code commit.**
+     Reason: TO DECIDE. Refines decision 117: one forgotten setting can no longer enable a known code.
+121. **`verify-otp` allows 10 verify attempts per phone per hour (counted from `OtpSession.attempts`; over the limit gives `RATE_LIMITED`). It has no per-IP limit in the MVP.**
+     Reason: TO DECIDE. Fills the open limit of decision 115.
+122. **`refresh` and `logout` allow 30 requests per IP per hour. Superseded by decision 137 (120 per IP per hour).**
+     Reason: TO DECIDE. Fills the open limit of decision 115. Many riders can share one carrier address, so the number may need raising after real traffic is seen.
+123. **The client IP is read from the proxy header only if `TRUST_PROXY_HOPS` is set. The default is 0, meaning untrusted: the connection's own address is used and any forwarded header is ignored.**
+     Reason: TO DECIDE. A client can write any forwarded header, so trusting it by default would let anyone dodge the per-IP limits. Behind a load balancer the variable must be set, or every rider shares one address. It needs a rule in `input-validation.md` section 6 and a line in `.env.example`.
+124. **The refresh token lifetime is sliding: each rotation issues a fresh 30 days.**
+     Reason: TO DECIDE. An active rider is never logged out; refines decision 116.
+125. **A lost refresh reply logs the device out. There is no grace window in the MVP.**
+     Reason: a grace window would accept a just-rotated token and weaken theft detection (decision 116).
+126. **`logout` stays public with the refresh token as the credential until the JWT guard exists.**
+     Reason: TO DECIDE. The JWT guard and the authenticated-user decorator are F4 work that does not exist yet.
+127. **The exact 2Factor request format, session-id field, error shapes and the OTP length are "confirmed in M0" in the docs and are not guessed.**
+     Reason: TO DECIDE. Refines decisions 89 and 91.
+128. **A DELETED rider's phone (and email) keep the plain unique constraint. `verify-otp` answers `ACCOUNT_BANNED` for a DELETED rider.**
+     Reason: TO DECIDE. Simplest and safe; no delete flow exists yet. Resolves the open question in `api/rider-register.md`.
+129. **The owner approved `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `rider-refresh.md` and `rider-logout.md` on 2026-10-05. Entries 87 to 119, marked PROPOSED, are now APPROVED 2026-10-05. Anything still written as TO DECIDE inside them stays open and must be resolved before the code that needs it (rule 12).**
+     Reason: TO DECIDE. The error messages marked "(proposed)" in `response-format.md` are not confirmed by this entry.
+
+130. **`OTP_PROVIDER_ERROR` is HTTP 503, and 503 is an allowed status (`response-format.md` section 4; the registry spec's allowed list gets 503 when the code is typed).**
+     Reason: TO DECIDE. Resolves the 503-versus-500 open point of decision 118.
+131. **`Gender` enum values: `MALE`, `FEMALE`, `OTHER`.**
+     Reason: TO DECIDE. Resolves the open point of decision 107.
+132. **`device.deviceId`: 1 to 64 characters, only `A-Z a-z 0-9 _ -`. `device.appVersion`: format like `1.4.2` (rule replaced by decision 143) (three dot-separated numbers; the exact regex is in `input-validation.md` section 2b). `device.fcmToken`: optional, 1 to 512 characters.**
+     Reason: TO DECIDE.
+133. **The access token is a JWT with algorithm HS256, signed with the environment secret `JWT_ACCESS_SECRET` (at least 32 characters; the app refuses to start if it is shorter), issuer `treeps`, claims `sub` (rider id), `role` (`RIDER`) and `deviceId`, plus standard `iat` and `exp`. Verification accepts only HS256.**
+     Reason: TO DECIDE. Resolves the open JWT point of decision 116.
+134. **No audit table in the MVP. Security-relevant events are written as structured application log lines in the existing key=value style, carrying the `requestId` and a fixed event name only (no phone, id, email or token).**
+     Reason: TO DECIDE. The `OtpSession`, `Device`, `RefreshToken` and `Rider` rows remain the durable record. This resolves the audit-storage open point of decisions 115 and 116 and the audit item of `api-standard.md` section 6 for this feature.
+135. **`fullName` accepts only Unicode letters, combining marks, space, `.`, `'` and the curly `’` (U+2019); leading, trailing and double spaces are rejected, not fixed. The hyphen is no longer allowed (superseded by decision 141: the hyphen is allowed). This replaces the name part of decision 95.**
+     Reason: TO DECIDE. Combining marks are needed for Indian-script names.
+136. **`email` rejects uppercase letters and spaces; the app lowercases before sending. The server does not lowercase. This confirms the email part of decision 95.**
+     Reason: a Postgres unique index is case-sensitive, so `A@x.com` and `a@x.com` would otherwise be two accounts.
+137. **`refresh` and `logout` allow 120 requests per IP per hour. `send-otp` keeps 20 per IP per hour and `register` 10. This replaces decision 122.**
+     Reason: many riders share one mobile-carrier address (carrier NAT).
+138. **A DELETED rider at `verify-otp` gets `ACCOUNT_BANNED` (confirmed).**
+     Reason: TO DECIDE. Confirms decision 128.
+139. **The config key names proposed in the docs are final. Environment keys: `OTP_PROVIDER`, `ALLOW_FAKE_OTP`, `FAKE_OTP_CODE`, `TWOFACTOR_API_KEY`, `TRUST_PROXY_HOPS`, `JWT_ACCESS_SECRET` (rules in `input-validation.md` section 6). Rate limits, lifetimes and the other tunable numbers are constants in one config file, not environment variables.**
+     Reason: TO DECIDE. The second sentence is how the docs read the owner's decision; the owner can change it.
+140. **The new shared field types the rider auth APIs need are listed with rules and examples in `input-validation.md` section 2b: `IndianMobile`, `Email`, `PersonName`, `OtpCode`, `OpaqueToken`, `DeviceId`, `AppVersion`, and limits for `fcmToken`. Rules the owner stated are final; the exact email shape and the `AppVersion` regex are PROPOSED - awaiting approval.**
+     Reason: rule 12 of `input-validation.md`: limits are resolved before code is written.
+
+141. **`fullName` also allows the hyphen `-`; `Mary-Jane` is valid. Leading, trailing and double spaces are still rejected. A hyphen as the first or last character, and two hyphens in a row (`--`), are rejected with `INVALID_FORMAT`. This replaces the hyphen part of decision 135.**
+     Reason: TO DECIDE. The rejection of `--` and of a leading or trailing hyphen was the docs' proposal, accepted by the owner.
+142. **`email`: exactly one `@`, a dot in the domain part, no spaces, no uppercase, at most 254 characters. The shared `Email` type also requires a non-empty local part and no empty domain label or leading or trailing dot in the domain (`input-validation.md` section 2b). Restates decision 136.**
+     Reason: a Postgres unique index is case-sensitive (decision 136).
+143. **`device.appVersion` is exactly `major.minor.patch`, 1 to 3 ASCII digits each, regex `^\d{1,3}\.\d{1,3}\.\d{1,3}$`. This replaces the 1 to 20 character rule of decision 132 (a valid value is 5 to 11 characters).**
+     Reason: TO DECIDE.
+144. **The default proposals for the non-blocking open items are accepted: concurrent sends may rarely send two SMS (no mitigation); a logout racing a refresh may leave one fresh token (accepted); logout clears the device's `fcmToken`; no limit on devices per rider; "log out of all devices" is not in this feature; no retention or cleanup of `OtpSession` and `RefreshToken` rows; the 15 minute access-token window after a ban is accepted (no `tokenVersion`); invalid city or state values are rejected, not ignored; the login `ACCOUNT_BANNED` message keeps the registry wording; `isProfileComplete` stays `false` and nothing in this feature sets it; a spend alarm is the owner's job in the provider account. Where the docs had written no explicit proposal (devices per rider, `isProfileComplete`), the recorded default is "none" and "nothing sets it". Not covered here and still open: DLT registration, the admin endpoints and the pagination shape (deferred by decision 119), and the production migration process.**
+     Reason: TO DECIDE.
+145. **The rules in `input-validation.md` section 2b are APPROVED, including decision 140. The 2Factor client details stay "confirmed in M0" (decision 127) and block only the real 2Factor client (the owner's M4); everything else in the rider auth work, including the fake provider, is not blocked by them.**
+     Reason: TO DECIDE.
+146. **The old Firebase auth code is removed: `src/auth/` (controller, service, module, Firebase service), its registration in `AppModule`, and both "remove in F4" allowlist entries (`ROUTE_INPUT_ALLOWLIST` and the banned-patterns allowlist are now empty; the mechanisms stay). The e2e versioning test now uses `POST /v1/rides/estimate`. `firebase-admin` stays in `package.json` until the final cleanup.**
+     Reason: it was broken (it used the removed `prisma.user`, so the project did not compile) and held a mock-token security hole; decision 84 replaced the Firebase login with the 2Factor OTP flow. Ends the allowlist parts of decisions 45, 59, 61 and 62 that named `src/auth/`.
+147. **The in-memory rate-limit guard is hand-written with no new dependency (`@nestjs/throttler` is not used). A `@RateLimit({ name, ip?, phone? })` decorator attaches the guard to a route; the numbers are constants in `src/config/rate-limits.ts`. Fixed-window counters, expired counters swept on a time interval, an injectable clock, no timers. The client IP is the socket address when `TRUST_PROXY_HOPS` is 0; with N hops it is the Nth `X-Forwarded-For` entry from the right, and a short or invalid header falls back to the socket address. A blocked request throws `RATE_LIMITED` (429) through the error registry; no `Retry-After` header (TO DECIDE).**
+     Reason: TO DECIDE. It needs no dependency and is small enough to test completely; the per-phone limits for send-otp and verify-otp stay in the services (counted from `OtpSession` rows), so the guard's per-phone option is unused by the docs today. Refines decisions 115 and 123.

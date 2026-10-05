@@ -6,7 +6,7 @@ Launch scope: Ranchi only; tiers MINI, SEDAN, XL.
 Docs start at `docs/README.md`. Progress: `docs/progress/TRACKER.md`. Decisions: `docs/decisions/DECISIONS.md`.
 
 ## Architecture
-- Modular monolith. Today `src/auth/` and `src/prisma/` exist. New domains go under `src/modules/<domain>/` (module, controller, service, DTOs).
+- Modular monolith. Today `src/prisma/`, `src/common/`, `src/config/` and `src/modules/rides/` exist (the old `src/auth/` was removed on 2026-10-05). New domains go under `src/modules/<domain>/` (module, controller, service, DTOs).
 - Admin visibility: from the first user-facing domain after the estimate API, each domain ships admin audit/tracking/metrics endpoints with it.
 
 ## Teaching (the owner knows Express/Mongoose, not NestJS/Prisma)

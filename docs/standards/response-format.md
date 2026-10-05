@@ -73,11 +73,12 @@ Every reply uses one of the two shapes above, including errors raised by the fra
 | Valid request that breaks a business rule | 422 |
 | Rate limit | 429 |
 | Internal | 500 |
+| An upstream provider failed or timed out (`OTP_PROVIDER_ERROR` only) | 503 |
 
-503 is not in the registry for now. A SERVICE_UNAVAILABLE row is added when a real case appears.
+503 is used only by `OTP_PROVIDER_ERROR` (decision 130). No generic SERVICE_UNAVAILABLE row exists; one is added when another real case appears.
 
 ## 5. Error-code registry
-Messages for the estimate codes are copied from `docs/api/estimate.md`, where they are proposed and not yet confirmed. Several codes share a status (for example FORBIDDEN, PAYMENT_DUE and ACCOUNT_BANNED are all 403), so apps tell them apart by `code`.
+Messages for the estimate codes are copied from `docs/api/estimate.md`, where they are proposed and not yet confirmed. Messages for the six rider-auth codes (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, REGISTRATION_TOKEN_INVALID, EMAIL_IN_USE) are copied from the rider auth docs (`docs/api/rider-verify-otp.md`, `rider-register.md`), where they are proposed and not yet confirmed (PROPOSED - awaiting approval). `ACCOUNT_BANNED` and `CONFLICT` are reused by those docs; `ACCOUNT_EXISTS` was proposed on 2026-10-04 and dropped on 2026-10-05, and was never in code. `OTP_PROVIDER_ERROR` is 503 (decision 130), so 503 is an allowed status; the registry spec lists the allowed statuses and must add it when the code is typed. Several codes share a status (for example FORBIDDEN, PAYMENT_DUE and ACCOUNT_BANNED are all 403), so apps tell them apart by `code`.
 
 | Code | HTTP status | Rider-safe message (English fallback) | `field` |
 |---|---|---|---|
@@ -94,6 +95,12 @@ Messages for the estimate codes are copied from `docs/api/estimate.md`, where th
 | ROUTE_UNAVAILABLE | 422 | "We couldn't plan this route. Try again." (proposed) | null |
 | PAYMENT_DUE | 403 | "Please clear your pending payment first." (proposed) | null |
 | ACCOUNT_BANNED | 403 | "This account can't book rides." (proposed) | null |
+| OTP_INVALID | 422 | "That code is not right. Please check and try again." (proposed) | otp |
+| OTP_EXPIRED | 422 | "That code has expired. Please ask for a new one." (proposed) | otp |
+| OTP_ATTEMPTS_EXCEEDED | 429 | "Too many wrong codes. Please ask for a new code." (proposed) | otp |
+| OTP_PROVIDER_ERROR | 503 | "We couldn't reach the code service. Please try again." (proposed) | null |
+| REGISTRATION_TOKEN_INVALID | 422 | "Your sign-up session has expired. Please verify your phone again." (proposed) | registrationToken |
+| EMAIL_IN_USE | 409 | "This email is already in use." (proposed) | email |
 
 Where the registry lives in code: `src/common/errors/error-registry.ts`. Controllers throw a single `AppException` (`src/common/errors/app.exception.ts`) with a code and optional `{ field, details }`. Status and message come only from the registry; `details` is accepted only with INVALID_INPUT and the constructor rejects it on any other code.
 
@@ -134,3 +141,6 @@ F3.2 is done. The request id middleware, the error registry with `AppException`,
 | 2026-09-29 | Resolved `details.reason` (fixed codes), A to Z order, the 20 cap and the `$unknown` entry | F3.3 input validation standard |
 | 2026-09-29 | `field` skips the `$unknown` entry; an unusable body has `field` null and no `details` | Owner decisions before commit |
 | 2026-09-30 | Clarified that `{}` is a normal body; unusable means missing, null, array or a bare string, number or boolean | F3.3 piece c |
+| 2026-10-04 | Proposed five registry rows: ACCOUNT_EXISTS (409), OTP_INVALID (422), OTP_EXPIRED (422), OTP_ATTEMPTS_EXCEEDED (429), OTP_PROVIDER_ERROR (503), and a 503 row in section 4 | Rider register docs-first (Step 2); not in code yet |
+| 2026-10-05 | Dropped ACCOUNT_EXISTS; proposed REGISTRATION_TOKEN_INVALID (422) and EMAIL_IN_USE (409); the registry would have 19 codes | Unified rider phone-OTP flow (docs only, not in code yet) |
+| 2026-10-05 | 503 confirmed for OTP_PROVIDER_ERROR and added to the allowed statuses (section 4) | Owner decision 130 |

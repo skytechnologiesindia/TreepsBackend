@@ -19,6 +19,7 @@ pg_restore --list "<file>"   # check the file is readable
 ```
 - The `?schema=public` part of `DATABASE_URL` must be removed; `pg_dump` and `psql` reject it.
 - Current backup: `C:\Users\HP\Documents\treeps_db-backup-2026-09-29.dump`. Keep until F4 is done.
+- Backup before the rider auth migration: `C:\Users\HP\Documents\treeps_db-backup-2026-10-05.dump` (taken 2026-10-05; the tables were empty).
 - Restore only into a NEW empty database, never over an existing one.
 
 ## Migrate workflow

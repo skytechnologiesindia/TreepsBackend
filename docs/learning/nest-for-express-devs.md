@@ -19,9 +19,6 @@ Append new terms at the bottom as they come up.
 | `app.js` | `main.ts` | Creates the app and starts it |
 | `process.env` | **ConfigModule** | Loads `.env` |
 | `mongoose.connect()` | **PrismaService** (extends PrismaClient) | Connects on module start |
-
-## Order a request travels through
-Middleware, Guards, Interceptors (before), Pipes, Handler, Interceptors (after), Exception Filters (only on error).
 | Joi `.required()` / `.optional()` | `Required(type)` / `Optional(type)` (`src/common/validation/fields.ts`) | Wrap a shared field type on a DTO property: required, or checked only when sent |
 | Joi `.number().min(-90).max(90)` | `Latitude()`, `Longitude()` | JSON numbers within the degree range |
 | Regex check on a phone string | `Phone({ minDigits, maxDigits })` | E.164 string: `+` then digits |
@@ -33,3 +30,6 @@ Middleware, Guards, Interceptors (before), Pipes, Handler, Interceptors (after),
 | `Joi.valid('A','B')` / a Mongoose `enum` | `OneOf(values)` | The value must be one of the listed strings |
 | Joi `.object(schema)` / a Mongoose sub-document | `Nested(() => Dto)` | An object checked against another DTO class |
 | Joi `.array().items(schema).min().max()` / an array of sub-documents | `NestedList(() => Dto, { min, max })` | A list of objects, each checked against a DTO class, with a size limit |
+
+## Order a request travels through
+Middleware, Guards, Interceptors (before), Pipes, Handler, Interceptors (after), Exception Filters (only on error).

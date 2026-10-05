@@ -1,6 +1,6 @@
 # Progress Tracker
 
-Last updated: 2026-10-02
+Last updated: 2026-10-05
 
 | Stage | What | Status |
 |---|---|---|
@@ -15,6 +15,45 @@ Last updated: 2026-10-02
 | F4 | Auth: real JWT, role guard, remove mock token | Not started |
 | F5 | Rider, driver, ride and quote models | Not started |
 | L0 | First estimate API, `POST /v1/rides/estimate`, with FAKE fixed fares | Done (commit dba5201) |
+| F4-R | Rider register (send-otp + register) with 2Factor | Docs drafted, awaiting owner approval |
+
+## Rider register (F4)
+Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `rider-refresh.md`, `rider-logout.md` (all APPROVED 2026-10-05; items still marked TO DECIDE inside them stay open). Coach mode: the owner types the code. Decisions 84 to 145.
+- [x] Step 1: read-only discovery
+- [x] Step 2: docs drafted (two API docs, decisions 84 to 99, five error-code rows in `response-format.md`)
+- [x] Step 3: final Rider data model recorded in `api/rider-register.md` (decisions 100 to 108); `rider-send-otp.md` made unified (purpose `RIDER_AUTH`)
+- [x] Step 4: unified flow written (five route docs, decisions 109 to 119); register-before-admin-auth exception recorded (decision 119)
+- [x] Owner decides what happens to a DELETED rider's phone: plain unique (decision 128)
+- [x] Owner approves the five docs and every PROPOSED value (decision 129)
+- [ ] 2Factor request format, session-id field, verify behavior and OTP length: confirmed in M0 (decision 127; not guessed in the docs). Blocks only the real 2Factor client (the owner's M4, decision 145); the fake provider and everything else are not blocked
+- [x] Decided 2026-10-05: fake provider gate, verify 10 per phone per hour, refresh and logout 30 per IP per hour, `TRUST_PROXY_HOPS`, sliding refresh, no grace window, public logout, DELETED plain unique (decisions 120 to 128)
+- [x] Decided 2026-10-05 (second round): 503, gender values, device field rules, HS256 JWT, no audit table, fullName and email rules, refresh and logout 120 per IP per hour, DELETED confirmed, final config keys (decisions 130 to 139)
+- [x] Owner approved the shared-type rules in `input-validation.md` section 2b (decisions 140, 145); `fullName` allows `-` but not first, last or doubled (141); email (142); `appVersion` regex (143)
+- [x] Non-blocking open items settled with the docs' defaults (decision 144)
+- [ ] Still open, none blocks the code: DLT registration for India SMS (owner action, needed before real SMS), the admin endpoints and the pagination shape (deferred, decision 119), the production migration process (`runbooks/database.md`)
+- [ ] Owner answers: DLT registration for India SMS
+- [x] Documented in `input-validation.md`: section 2b (new shared types: IndianMobile, Email, PersonName, OtpCode, OpaqueToken, DeviceId, AppVersion, fcmToken limits) and section 6 (six startup keys). The date-only type is still not needed until a date-of-birth field is built
+- [x] Built: `IndianMobile` in `src/common/validation/fields.ts` (spec in `fields.spec.ts`)
+- [ ] Still to build: `Email`, `PersonName`, `OtpCode`, `OpaqueToken`, `DeviceId`, `AppVersion`
+- [ ] Error registry: type the six rows (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, REGISTRATION_TOKEN_INVALID, EMAIL_IN_USE) into `src/common/errors/error-registry.ts`, and update `error-registry.spec.ts` (13 becomes 19 codes; 503 added to the allowed statuses, decision 130)
+- [x] Prisma models typed (`prisma/models/rider.prisma`, `rider-auth.prisma`), `prisma validate` and `format` clean, migration `20261005101140_rider_auth_data_model` created with `--create-only` and hand-edited (safe name change); dev DB checked first (localhost `treeps_db`, 0 rows)
+- [x] Migration tested on a scratch database (2 fake old-format riders: names merged, dates and gender kept, schema diff empty), `treeps_db` backed up (`C:\Users\HP\Documents\treeps_db-backup-2026-10-05.dump`), migration applied to `treeps_db` with `prisma migrate deploy`, `prisma generate` run (2026-10-05)
+- [x] Config (done, `src/config/env.validation.ts`, `.env.example`, specs updated): `OTP_PROVIDER` (twofactor or fake, required), `ALLOW_FAKE_OTP` (must be `true` with fake), `FAKE_OTP_CODE` (6 digits, required with fake), `TWOFACTOR_API_KEY` (required with twofactor), `TRUST_PROXY_HOPS` (0 to 10, default 0), `JWT_ACCESS_SECRET` (32 characters or more, required); each gets a validation rule in `src/config/env.validation.ts` and a line in `.env.example` in the same commit; the app refuses to start with the fake provider in production
+- [ ] `OtpProvider` interface, the 2Factor implementation (5 s timeout, no retry), the fake implementation, and the refuse-to-start rule (fake in production); tests
+- [x] In-memory rate-limit guard built, hand-written with no dependency (`src/common/rate-limit/`, numbers in `src/config/rate-limits.ts`, decision 147); it is NOT attached to any route yet
+- [ ] Attach `@RateLimit` to each rider auth route when it is built (numbers: `RATE_LIMITS`)
+- [ ] Retry-After header on RATE_LIMITED: TO DECIDE (none is sent today)
+- [ ] `send-otp` code and tests
+- [ ] `verify-otp` code and tests (login, new rider, banned; the race tests)
+- [ ] `register` code and tests (including the race tests)
+- [ ] `refresh` code and tests (rotation, reuse detection)
+- [ ] `logout` code and tests
+- [ ] JWT signing and the Rider role in the access token (claims, algorithm and secret: TO DECIDE); the guard and the authenticated-user decorator for later APIs (F4)
+- [x] Removed the Firebase auth code (`src/auth/`), its module registration and tests, and both "remove in F4" allowlist entries (decision 146)
+- [ ] Final cleanup: remove `firebase-admin` from `package.json`
+- [ ] Docs and changelog updated; owner says when to commit
+
+Admin visibility (CLAUDE.md): `GET /v1/admin/riders`, `GET /v1/admin/riders/:id`, `GET /v1/admin/metrics/riders` (proposed in `api/rider-register.md`). **Exception proposed in decision 119: the rider auth routes ship before admin auth.** The admin endpoints wait for admin authentication (no admin model or guard exists) and for the pagination shape (TO DECIDE).
 
 ## L0 checklist
 The owner typed the code. Step 1 was a read-only orientation.
@@ -34,7 +73,7 @@ The owner typed the code. Step 1 was a read-only orientation.
 - [x] e. Integrated HTTP tests, then mark F3.2 done
 
 ## F4 notes
-- Login uses Firebase phone authentication: the server verifies Firebase ID tokens (decision 77).
+- Login is the 2Factor phone OTP flow (decision 84), which supersedes the Firebase login of decision 77. The Firebase code was removed on 2026-10-05.
 
 ## F3.4 checklist
 - [x] Versioning in `setupApp` (`api-version.ts`), test helper `testing/base-url.ts`, specs on the versioned base URL, new `api-version.http.spec.ts`
@@ -71,8 +110,6 @@ Piece notes:
 - The contract test that pinned `field` null for pipe errors was changed on purpose in piece d1 (the route now uses a DTO, and the test asserts `field` `'id'` and `details`).
 
 ## Backlog
-- Login code uses the removed `prisma.user` (`src/auth/auth.service.ts`). Fix in F4; do not patch before.
-- Mock token security hole in `src/auth/firebase.service.ts`. **Do not deploy before F4.**
 - `Rider` has no account status field (F5).
 - Rename branch `master` to `main` before the first push.
 - Keep the DB backup until F4 is done (see `runbooks/database.md`).
@@ -90,11 +127,9 @@ Piece notes:
 - Extract a shared HTTP test helper (app setup, base URL, UUID regex) with no assertion changes and its own commit, after F3.3.
 - Security headers (for example `X-Content-Type-Options: nosniff`) must be added before deployment.
 - `PrismaService` should use the validated config instead of reading `process.env` directly (F4 or F5).
-- `POST /auth/login` reads `@Body('idToken')` and stays unvalidated (unknown body fields not rejected) until F4; its file is on the banned-patterns allowlist until then.
 - Restrict request bodies to `application/json` before F5 (Nest also accepts `application/x-www-form-urlencoded`, which turns `b[c]=2` into a nested object).
 - The DTO initializer check (d2) covers top-level route DTOs only, not nested DTO classes.
 - The route input check (d2) does not cover file uploads or dynamically added routes.
-- Remove both auth allowlist entries in F4: the banned-patterns allowlist and `ROUTE_INPUT_ALLOWLIST` (search for `remove in F4`).
 - Warn or refuse if `NODE_ENV=test` is used outside a test runner.
 - Startup check that migrations are applied (the database check only proves the database answers).
 - Decide a safe way to log real startup errors for operators before deployment. Today only our three own error types (env, database check, route inputs) print their message; any library error prints only a generic line (decision 68).
@@ -102,3 +137,8 @@ Piece notes:
 - Rate limiting: none exists although RATE_LIMITED is in the registry; build with F4 (needs the user id), before the estimate API.
 - Build `/health` as `VERSION_NEUTRAL` (no database call, never changes) before deployment.
 - Banned-patterns scan is line-based: a `@Controller(` whose path string is on the next line slips past the "no version in a controller path" rule (see `api-standard.md`, section 8). Fix only if it ever appears.
+- Rider register: access tokens stay valid for up to 15 minutes after a logout, ban or token revocation (stateless JWT); the deferred `tokenVersion` column would close that gap.
+- Rider register: `SavedPlace` and `EmergencyContact` have no index on `riderId` (existing gap, reported only).
+- Confirm the error messages of the six rider-auth codes (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, REGISTRATION_TOKEN_INVALID, EMAIL_IN_USE) and the ACCOUNT_BANNED wording for login; they are still marked "(proposed)" in `response-format.md`.
+- "M0" and "M4" are the owner's milestone names (M0 confirms the 2Factor request format, M4 needs the real 2Factor client); the milestone list is not written in the repo docs yet.
+- Do not deploy before F4: the L0 estimate route has no login (decision 81). The old Firebase mock-token hole is gone with the code.
