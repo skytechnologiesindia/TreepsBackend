@@ -1,5 +1,6 @@
 import { RouteInputsError } from '../common/validation/route-inputs.js';
 import { DatabaseCheckError } from './database-check.js';
+import { OtpProviderNotBuiltError } from './otp-provider-not-built.error.js';
 import { EnvConfigError } from './env.validation.js';
 
 export const STARTUP_FAILED_LINE = 'Startup failed. See server logs for details.';
@@ -11,6 +12,7 @@ export const STARTUP_FAILED_LINE = 'Startup failed. See server logs for details.
 export function describeStartupFailure(error: unknown): string {
   return error instanceof EnvConfigError ||
     error instanceof DatabaseCheckError ||
+    error instanceof OtpProviderNotBuiltError ||
     error instanceof RouteInputsError
     ? error.message
     : STARTUP_FAILED_LINE;

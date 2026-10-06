@@ -39,11 +39,12 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [x] Prisma models typed (`prisma/models/rider.prisma`, `rider-auth.prisma`), `prisma validate` and `format` clean, migration `20261005101140_rider_auth_data_model` created with `--create-only` and hand-edited (safe name change); dev DB checked first (localhost `treeps_db`, 0 rows)
 - [x] Migration tested on a scratch database (2 fake old-format riders: names merged, dates and gender kept, schema diff empty), `treeps_db` backed up (`C:\Users\HP\Documents\treeps_db-backup-2026-10-05.dump`), migration applied to `treeps_db` with `prisma migrate deploy`, `prisma generate` run (2026-10-05)
 - [x] Config (done, `src/config/env.validation.ts`, `.env.example`, specs updated): `OTP_PROVIDER` (twofactor or fake, required), `ALLOW_FAKE_OTP` (must be `true` with fake), `FAKE_OTP_CODE` (6 digits, required with fake), `TWOFACTOR_API_KEY` (required with twofactor), `TRUST_PROXY_HOPS` (0 to 10, default 0), `JWT_ACCESS_SECRET` (32 characters or more, required); each gets a validation rule in `src/config/env.validation.ts` and a line in `.env.example` in the same commit; the app refuses to start with the fake provider in production
-- [ ] `OtpProvider` interface, the 2Factor implementation (5 s timeout, no retry), the fake implementation, and the refuse-to-start rule (fake in production); tests
+- [x] `OtpProvider` interface, `FakeOtpProvider`, provider chosen by `OTP_PROVIDER`; `twofactor` refuses to start with "twofactor client not built yet (blocked on M0)" (decision 148)
+- [ ] Real 2Factor client (5 s timeout, no retry) and its tests: blocked on M0
 - [x] In-memory rate-limit guard built, hand-written with no dependency (`src/common/rate-limit/`, numbers in `src/config/rate-limits.ts`, decision 147); it is NOT attached to any route yet
-- [ ] Attach `@RateLimit` to each rider auth route when it is built (numbers: `RATE_LIMITS`)
+- [ ] Attach `@RateLimit` to each rider auth route when it is built (numbers: `RATE_LIMITS`); done for send-otp
 - [ ] Retry-After header on RATE_LIMITED: TO DECIDE (none is sent today)
-- [ ] `send-otp` code and tests
+- [x] `send-otp` code and tests (`src/modules/rider-auth/`, decision 148)
 - [ ] `verify-otp` code and tests (login, new rider, banned; the race tests)
 - [ ] `register` code and tests (including the race tests)
 - [ ] `refresh` code and tests (rotation, reuse detection)

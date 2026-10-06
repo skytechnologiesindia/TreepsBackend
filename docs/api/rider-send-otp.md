@@ -69,10 +69,11 @@ The code never calls 2Factor directly. It depends on an `OtpProvider` interface 
 | Method | What it does | Result |
 |---|---|---|
 | `send(phoneNumber)` | Asks the provider to send an OTP | `{ providerSessionId }`, or a provider failure |
-| `verify(providerSessionId, otp)` | Asks the provider if the code matches | `MATCH`, `MISMATCH`, or a provider failure |
+| `verify(providerSessionId, otp)` | Asks the provider if the code matches | `true` (match) or `false` (no match); a provider failure is a thrown error |
 
 Two implementations:
 - **TwoFactorOtpProvider (real):** 5 second timeout, **no automatic retry** (a retry can send a second SMS), any failure (timeout, refusal, unreadable reply) becomes `OTP_PROVIDER_ERROR` (503). Its exact request format, session-id field and error shapes: confirmed in M0 (not guessed in these docs).
+- **Built so far (send-otp step):** the `OtpProvider` interface, `FakeOtpProvider`, and the choice by `OTP_PROVIDER` at startup, all in `src/modules/rider-auth/otp/`. With `OTP_PROVIDER=twofactor` the app refuses to start with the fixed message `OTP_PROVIDER=twofactor: twofactor client not built yet (blocked on M0). ...` (an `OtpProviderNotBuiltError`, which the startup printer may show because it holds a key name and constants only). It never falls back to the fake.
 - **FakeOtpProvider (dev and test only):** makes no network call. `send` returns a made-up session id; `verify` returns `MATCH` only for one fixed code taken from config (no default value).
 
 Startup rules (final key names, decision 139: `OTP_PROVIDER`, `ALLOW_FAKE_OTP`, `FAKE_OTP_CODE`, `TWOFACTOR_API_KEY`, `TRUST_PROXY_HOPS`; the exact rules are in `input-validation.md` section 6, and each key gets a line in `.env.example` in the code commit):
@@ -105,6 +106,9 @@ All errors use the envelope in `standards/response-format.md`. Messages come onl
 | INTERNAL_ERROR | 500 | A bug or a database failure | null | "Something went wrong. Please try again." | Show retry |
 
 `OTP_PROVIDER_ERROR` is 503 (decision 130); 503 is in the status table of `response-format.md` section 4.
+
+## Where it lives
+`src/modules/rider-auth/`: `rider-auth.controller.ts` (`@Controller('rider/auth')`, `@RateLimit` 20 per IP per hour from `RATE_LIMITS`), `rider-auth.service.ts`, `dto/send-otp.dto.ts` (`IndianMobile`), `rider-auth.module.ts`. The service takes the time from an injectable clock (`src/common/clock.ts`) and stores `createdAt` from it, so the cooldown and hourly counts use one timeline. The provider is called before the row is stored, as in the order of checks above (the row needs the provider's session id).
 
 ## Rate limit, logging and audit
 - **Rate limit** (APPROVED): 5 sends per hour per phone, 30-second cooldown per phone, 20 per hour per IP.
@@ -150,3 +154,4 @@ All errors use the envelope in `standards/response-format.md`. Messages come onl
 | 2026-10-05 | Status changed from PROPOSED to APPROVED; the fake provider needs `OTP_PROVIDER=fake` and `ALLOW_FAKE_OTP=true` and is refused in production; client IP read only when `TRUST_PROXY_HOPS` is set; the 2Factor request format is confirmed in M0 | Owner approval and decisions 120 to 129 |
 | 2026-10-05 | 503 for `OTP_PROVIDER_ERROR`; final config keys; `IndianMobile` type; no audit table, structured log with `requestId` only | Owner decisions 130 to 140 |
 | 2026-10-05 | concurrent sends, retention and spend alarm settled (decision 144); 2Factor details still confirmed in M0 and DLT registration still open | Owner decisions 141 to 145 |
+| 2026-10-05 | Built: route, service, `OtpProvider` interface, `FakeOtpProvider`, startup refusal for `twofactor` (blocked on M0); `verify` returns true or false | send-otp code step |

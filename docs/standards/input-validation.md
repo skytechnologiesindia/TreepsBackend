@@ -110,7 +110,7 @@ After the app is created and the route input check has passed, and before `liste
 
 ### How a failed start ends
 `main.ts` sends every startup failure, including an unhandled rejection, to `refuseToStart` (`src/config/startup-failure.ts`). It prints ONE line to stderr and exits with code 1:
-- an `EnvConfigError`, a `DatabaseCheckError` or a `RouteInputsError` (our own types) prints its own message, which is built from variable names, controller and handler names, reason codes and constants, never from a value;
+- an `EnvConfigError`, a `DatabaseCheckError`, a `RouteInputsError` or an `OtpProviderNotBuiltError` (our own types) prints its own message, which is built from variable names, controller and handler names, reason codes and constants, never from a value;
 - anything else (a library error, a string, an object, `undefined`) prints only `Startup failed. See server logs for details.`
 - The server does not rely on Node's default unhandled-rejection behavior, so `NODE_OPTIONS=--unhandled-rejections=warn` cannot turn a refused start into a running server.
 

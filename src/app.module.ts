@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { validateEnv } from './config/env.validation.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module.js';
+import { RiderAuthModule } from './modules/rider-auth/rider-auth.module.js';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module.js';
     PrismaModule,
     RidesModule,
     RateLimitModule,
+    RiderAuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

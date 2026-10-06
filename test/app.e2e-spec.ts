@@ -19,8 +19,9 @@ describe('AppController (e2e)', () => {
   beforeAll(async () => {
     vi.stubEnv('DATABASE_URL', FAKE_DATABASE_URL);
     vi.stubEnv('NODE_ENV', 'test');
-    vi.stubEnv('OTP_PROVIDER', 'twofactor');
-    vi.stubEnv('TWOFACTOR_API_KEY', 'placeholder-2factor-api-key');
+    vi.stubEnv('OTP_PROVIDER', 'fake');
+    vi.stubEnv('ALLOW_FAKE_OTP', 'true');
+    vi.stubEnv('FAKE_OTP_CODE', '123456');
     vi.stubEnv('JWT_ACCESS_SECRET', 'placeholder-jwt-secret-0123456789abcdef');
     const { AppModule } = (await import('./../src/app.module.js')) as { AppModule: Type<unknown> };
 
@@ -75,6 +76,16 @@ describe('AppController (e2e)', () => {
     const versioned = await request(app.getHttpServer()).post('/v1/rides/estimate').send({});
     expect(versioned.status).toBe(400);
     expect(versioned.body.error.code).toBe('INVALID_INPUT');
+  });
+
+  it('POST /v1/rider/auth/send-otp is served by the real app: a bad phone is INVALID_INPUT, no database needed', async () => {
+    const response = await request(app.getHttpServer()).post('/v1/rider/auth/send-otp').send({ phoneNumber: '9477172214' });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_INPUT');
+    expect(response.body.error.field).toBe('phoneNumber');
+    expect(response.body.requestId).toMatch(UUID_V4);
+    const unversioned = await request(app.getHttpServer()).post('/rider/auth/send-otp').send({});
+    expectNotFoundEnvelope(unversioned);
   });
 
   it('an unknown route returns 404 with the error envelope', async () => {
