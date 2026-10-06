@@ -6,10 +6,12 @@ import { RateLimiter } from '../../common/rate-limit/rate-limiter.js';
 import { setupApp } from '../../common/setup-app.js';
 import { rawBaseUrl, versionedBaseUrl } from '../../common/testing/base-url.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { OTP_PROVIDER, type OtpProvider } from './otp/otp-provider.js';
+import { OTP_PROVIDER, type OtpProvider } from '../otp/provider/otp-provider.js';
 import { RiderAuthController } from './rider-auth.controller.js';
-import { RiderAuthService } from './rider-auth.service.js';
-import { inMemoryPrisma } from './testing/in-memory-prisma.js';
+import { AccessTokenService } from './access-token.service.js';
+import { SendOtpService } from '../otp/send-otp.service.js';
+import { VerifyOtpService } from './verify-otp.service.js';
+import { inMemoryPrisma } from '../otp/testing/in-memory-prisma.js';
 
 const SECOND = 1000;
 const HOUR = 3_600_000;
@@ -33,7 +35,9 @@ async function startApp(options: { failingProvider?: boolean } = {}) {
   const moduleRef = await Test.createTestingModule({
     controllers: [RiderAuthController],
     providers: [
-      RiderAuthService,
+      SendOtpService,
+      VerifyOtpService,
+      { provide: AccessTokenService, useValue: new AccessTokenService('placeholder-jwt-secret-0123456789abcdef') },
       { provide: PrismaService, useValue: prisma },
       { provide: OTP_PROVIDER, useValue: provider },
       { provide: CLOCK, useValue: () => new Date(now) },

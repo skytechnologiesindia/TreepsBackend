@@ -23,7 +23,7 @@ Body, JSON. Only the field below is accepted; unknown fields (including `purpose
 |---|---|---|---|---|---|---|---|---|
 | phoneNumber | string | E.164 text | Required | `+91` followed by 10 digits, first of the 10 in 6 to 9 (APPROVED). Nothing is trimmed or normalized. | Identifies who is logging in or registering and where the SMS goes | The repo's `phone` type is E.164 and not normalized, so one number has one spelling and always matches one account | Identity | A malformed number wastes a paid SMS; two spellings of one number could create two accounts |
 
-The OTP purpose is never a request field. Every session has the purpose `RIDER_AUTH`, the only value of the `OtpPurpose` enum (a driver flow would add its own value later).
+The OTP purpose is never a request field. Every session this route creates has the purpose `RIDER_AUTH`, fixed by the route. The `OtpPurpose` enum also has `DRIVER_AUTH`, used by the driver route (`driver-send-otp.md`).
 
 Phone rule: the field uses the `IndianMobile` type (`input-validation.md` section 2b): `+91`, then 10 digits, the first in 6 to 9. The existing generic `Phone()` is not used here.
 
@@ -73,7 +73,7 @@ The code never calls 2Factor directly. It depends on an `OtpProvider` interface 
 
 Two implementations:
 - **TwoFactorOtpProvider (real):** 5 second timeout, **no automatic retry** (a retry can send a second SMS), any failure (timeout, refusal, unreadable reply) becomes `OTP_PROVIDER_ERROR` (503). Its exact request format, session-id field and error shapes: confirmed in M0 (not guessed in these docs).
-- **Built so far (send-otp step):** the `OtpProvider` interface, `FakeOtpProvider`, and the choice by `OTP_PROVIDER` at startup, all in `src/modules/rider-auth/otp/`. With `OTP_PROVIDER=twofactor` the app refuses to start with the fixed message `OTP_PROVIDER=twofactor: twofactor client not built yet (blocked on M0). ...` (an `OtpProviderNotBuiltError`, which the startup printer may show because it holds a key name and constants only). It never falls back to the fake.
+- **Built so far (send-otp step):** the `OtpProvider` interface, `FakeOtpProvider`, and the choice by `OTP_PROVIDER` at startup, all in `src/modules/otp/provider/`, shared with the driver route. With `OTP_PROVIDER=twofactor` the app refuses to start with the fixed message `OTP_PROVIDER=twofactor: twofactor client not built yet (blocked on M0). ...` (an `OtpProviderNotBuiltError`, which the startup printer may show because it holds a key name and constants only). It never falls back to the fake.
 - **FakeOtpProvider (dev and test only):** makes no network call. `send` returns a made-up session id; `verify` returns `MATCH` only for one fixed code taken from config (no default value).
 
 Startup rules (final key names, decision 139: `OTP_PROVIDER`, `ALLOW_FAKE_OTP`, `FAKE_OTP_CODE`, `TWOFACTOR_API_KEY`, `TRUST_PROXY_HOPS`; the exact rules are in `input-validation.md` section 6, and each key gets a line in `.env.example` in the code commit):
@@ -86,7 +86,7 @@ Startup rules (final key names, decision 139: `OTP_PROVIDER`, `ALLOW_FAKE_OTP`, 
 
 ## State changes
 - Before: no active session for this phone. After: one new `OtpSession` row (`phoneNumber`, `purpose` `RIDER_AUTH`, `providerSessionId`, `attempts` 0, `expiresAt` = now + 5 min; `verifiedAt`, `consumedAt`, `registrationTokenHash`, `registrationExpiresAt` all null).
-- **Only the newest session for a phone is valid.** A new send makes all older ones unusable. No extra column is needed: verify-otp reads the row with the latest `createdAt`.
+- **Only the newest session for a phone and purpose is valid.** A new send makes all older ones of the same purpose unusable. No extra column is needed: verify-otp reads the row with the latest `createdAt`.
 - Idempotency: natural. A repeat call inside the cooldown is `RATE_LIMITED` and sends nothing. There is no `Idempotency-Key` header in the MVP.
 - Concurrency: two simultaneous sends for one phone could both pass the cooldown check and send two SMS. No mitigation in the MVP: the rare duplicate SMS is accepted because the hourly cap still holds (decision 144).
 - A session is stored only after the provider accepts the request. If the provider fails or times out nothing is stored.
@@ -108,7 +108,7 @@ All errors use the envelope in `standards/response-format.md`. Messages come onl
 `OTP_PROVIDER_ERROR` is 503 (decision 130); 503 is in the status table of `response-format.md` section 4.
 
 ## Where it lives
-`src/modules/rider-auth/`: `rider-auth.controller.ts` (`@Controller('rider/auth')`, `@RateLimit` 20 per IP per hour from `RATE_LIMITS`), `rider-auth.service.ts`, `dto/send-otp.dto.ts` (`IndianMobile`), `rider-auth.module.ts`. The service takes the time from an injectable clock (`src/common/clock.ts`) and stores `createdAt` from it, so the cooldown and hourly counts use one timeline. The provider is called before the row is stored, as in the order of checks above (the row needs the provider's session id).
+`src/modules/otp/` holds the shared parts: `send-otp.service.ts` (`SendOtpService.sendOtp(purpose, phoneNumber)`), `dto/send-otp.dto.ts` (`IndianMobile`), `provider/` (the OTP provider) and `otp.module.ts`. `src/modules/rider-auth/rider-auth.controller.ts` (`@Controller('rider/auth')`, `@RateLimit` 20 per IP per hour from `RATE_LIMITS`) calls the service with purpose `RIDER_AUTH`. The per-phone cooldown and hourly counts look only at sessions of the same purpose (per phone AND per purpose), so a driver session never counts here. The service takes the time from an injectable clock (`src/common/clock.ts`) and stores `createdAt` from it, so the cooldown and hourly counts use one timeline. The provider is called before the row is stored, as in the order of checks above (the row needs the provider's session id).
 
 ## Rate limit, logging and audit
 - **Rate limit** (APPROVED): 5 sends per hour per phone, 30-second cooldown per phone, 20 per hour per IP.
@@ -155,3 +155,5 @@ All errors use the envelope in `standards/response-format.md`. Messages come onl
 | 2026-10-05 | 503 for `OTP_PROVIDER_ERROR`; final config keys; `IndianMobile` type; no audit table, structured log with `requestId` only | Owner decisions 130 to 140 |
 | 2026-10-05 | concurrent sends, retention and spend alarm settled (decision 144); 2Factor details still confirmed in M0 and DLT registration still open | Owner decisions 141 to 145 |
 | 2026-10-05 | Built: route, service, `OtpProvider` interface, `FakeOtpProvider`, startup refusal for `twofactor` (blocked on M0); `verify` returns true or false | send-otp code step |
+| 2026-10-06 | Shared code moved to `src/modules/otp/` and made purpose-aware (per phone and per purpose limits); rider behavior unchanged; `DRIVER_AUTH` exists for the driver route | Driver send-otp (decision 150) |
+| 2026-10-06 | Send logic moved to `src/modules/otp/` and takes a purpose; counts per phone and per purpose; rider behavior unchanged; driver route in `driver-send-otp.md` | Driver send-otp (decision 150) |

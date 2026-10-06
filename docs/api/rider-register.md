@@ -124,6 +124,7 @@ enum Gender {
 
 enum OtpPurpose {
   RIDER_AUTH
+  DRIVER_AUTH
 }
 
 enum DevicePlatform {
@@ -220,7 +221,7 @@ model RefreshToken {
 ### New tables
 | Table | Columns and rules |
 |---|---|
-| OtpSession | One row per OTP sent. `phoneNumber`; `purpose` (`RIDER_AUTH` only); `providerSessionId` (provider session id, server only, never returned); `attempts` (default 0); `expiresAt` (send time + 5 min); `verifiedAt` (set once, by a conditional update, when the provider confirms the code: this makes the OTP single use); `consumedAt` (set when the session is finished: login tokens issued, a banned login refused, or registration done); `registrationTokenHash` (unique; SHA-256 of the one-time registration token issued to an unknown phone, never the token) and `registrationExpiresAt` (verify time + 10 min); `createdAt`. Index `(phoneNumber, createdAt)`. Meanings are APPROVED, as set by the flow in this doc |
+| OtpSession | One row per OTP sent. `phoneNumber`; `purpose` (`RIDER_AUTH` or `DRIVER_AUTH`; the driver value was added by migration `20261006105503_add_driver_auth_otp_purpose`); `providerSessionId` (provider session id, server only, never returned); `attempts` (default 0); `expiresAt` (send time + 5 min); `verifiedAt` (set once, by a conditional update, when the provider confirms the code: this makes the OTP single use); `consumedAt` (set when the session is finished: login tokens issued, a banned login refused, or registration done); `registrationTokenHash` (unique; SHA-256 of the one-time registration token issued to an unknown phone, never the token) and `registrationExpiresAt` (verify time + 10 min); `createdAt`. Index `(phoneNumber, createdAt)`. Meanings are APPROVED, as set by the flow in this doc |
 | Device | One row per rider install. `riderId`; `deviceId` (the app's install id); `platform` (`ANDROID`, `IOS`); `appVersion`; `fcmToken?`; `lastSeenAt`. Unique `(riderId, deviceId)` |
 | RefreshToken | One row per refresh token. `tokenHash` (unique, SHA-256 of the token; the token itself is never stored); `riderId` and `deviceId` (the pair points to `Device`); `expiresAt`; `revokedAt?`; `createdAt`. Index `(riderId, deviceId)`. **Revoked rows are kept**: a rotated token that is presented again is how reuse is detected |
 
@@ -336,3 +337,5 @@ Until then there is no way to suspend or block a rider through the API (`status`
 | 2026-10-05 | Status changed from PROPOSED to APPROVED; DELETED riders keep the plain unique phone and email (decision 128); client IP per `TRUST_PROXY_HOPS` | Owner approval and decisions 120 to 129 |
 | 2026-10-05 | device field rules; fullName rule (hyphen out, curly apostrophe in); email rule final; gender values; HS256 JWT; no audit table; config keys; shared types named | Owner decisions 130 to 140 |
 | 2026-10-05 | `-` allowed in `fullName` (not first, last or doubled); `appVersion` rule; non-blocking items settled; section 2b approved | Owner decisions 141 to 145 |
+| 2026-10-06 | `OtpPurpose` gained `DRIVER_AUTH` | Driver send-otp (decision 150) |
+| 2026-10-06 | `OtpPurpose` gained `DRIVER_AUTH` (migration `20261006105503_add_driver_auth_otp_purpose`) | Driver send-otp (decision 150) |

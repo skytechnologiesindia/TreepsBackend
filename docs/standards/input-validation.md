@@ -54,6 +54,8 @@ Needed by `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `
 | AppVersion | String in the form `MAJOR.MINOR.PATCH`: three groups of 1 to 3 ASCII digits separated by dots, regex `^\d{1,3}\.\d{1,3}\.\d{1,3}$` (so 5 to 11 characters; in JavaScript `\d` matches ASCII digits only). **(owner)** This replaces the earlier 1 to 20 character limit. | REQUIRED, WRONG_TYPE, INVALID_FORMAT | `1.4.2`, `10.0.123`, `999.999.999` | `1.4`, `v1.4.2`, `1.4.2-beta`, `1.4.2.1`, `1.4.1000` (4 digits), `""`, a 21-character string |
 | fcmToken | No new type: the existing `Text({ min: 1, max: 512 })`, wrapped in `Optional(...)`. No character set is checked beyond `Text` (U+0000 rejected). **(owner)** optional, 1 to 512 characters | WRONG_TYPE, INVALID_FORMAT, TOO_SHORT, TOO_LONG | a 163-character FCM token | `""` (TOO_SHORT), `null` (WRONG_TYPE, decision 46), 513 characters (TOO_LONG) |
 
+Built so far in `src/common/validation/fields.ts`: `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion` (with specs). Still to build: `Email`, `PersonName`, `OpaqueToken`.
+
 Also used, already existing: `OneOf(['ANDROID', 'IOS'])` for `device.platform`, `Nested(() => DeviceDto)` for `device`, and `Text({ min: 1, max: 100 })` for `registeredCity` and `registeredState` (the server trims these two before storing, a documented normalization in `rider-register.md`).
 
 ## 3. Reason codes (`details[].reason`)

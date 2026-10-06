@@ -7,6 +7,7 @@ import { validateEnv } from './config/env.validation.js';
 import { RidesModule } from './modules/rides/rides.module.js';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module.js';
 import { RiderAuthModule } from './modules/rider-auth/rider-auth.module.js';
+import { DriverAuthModule } from './modules/driver-auth/driver-auth.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { RiderAuthModule } from './modules/rider-auth/rider-auth.module.js';
     RidesModule,
     RateLimitModule,
     RiderAuthModule,
+    DriverAuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

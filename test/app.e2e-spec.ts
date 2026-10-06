@@ -88,6 +88,43 @@ describe('AppController (e2e)', () => {
     expectNotFoundEnvelope(unversioned);
   });
 
+  it('POST /v1/rider/auth/verify-otp is served by the real app: a bad body is INVALID_INPUT with dot-path fields, no database needed', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/v1/rider/auth/verify-otp')
+      .send({ phoneNumber: '9477172214', otp: '12345', device: { deviceId: 'd 1', platform: 'WINDOWS', appVersion: '1.4' } });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_INPUT');
+    expect(response.body.error.details).toEqual([
+      { field: 'device.appVersion', reason: 'INVALID_FORMAT' },
+      { field: 'device.deviceId', reason: 'INVALID_FORMAT' },
+      { field: 'device.platform', reason: 'NOT_ALLOWED' },
+      { field: 'otp', reason: 'INVALID_FORMAT' },
+      { field: 'phoneNumber', reason: 'INVALID_FORMAT' },
+    ]);
+    expectNotFoundEnvelope(await request(app.getHttpServer()).post('/rider/auth/verify-otp').send({}));
+  });
+
+  it('POST /v1/driver/auth/send-otp is served by the real app: a bad phone is INVALID_INPUT, no database needed', async () => {
+    const response = await request(app.getHttpServer()).post('/v1/driver/auth/send-otp').send({ phoneNumber: '9477172214' });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_INPUT');
+    expect(response.body.error.field).toBe('phoneNumber');
+    const withPurpose = await request(app.getHttpServer()).post('/v1/driver/auth/send-otp').send({ phoneNumber: '+919477172214', purpose: 'RIDER_AUTH' });
+    expect(withPurpose.status).toBe(400);
+    expect(withPurpose.body.error.details).toEqual([{ field: 'purpose', reason: 'UNKNOWN_FIELD' }]);
+    expectNotFoundEnvelope(await request(app.getHttpServer()).post('/driver/auth/send-otp').send({}));
+  });
+
+  it('POST /v1/driver/auth/send-otp is served by the real app: a bad phone and a client purpose are INVALID_INPUT', async () => {
+    const bad = await request(app.getHttpServer()).post('/v1/driver/auth/send-otp').send({ phoneNumber: '9477172214' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.field).toBe('phoneNumber');
+    const purpose = await request(app.getHttpServer()).post('/v1/driver/auth/send-otp').send({ phoneNumber: '+919477172214', purpose: 'DRIVER_AUTH' });
+    expect(purpose.status).toBe(400);
+    expect(purpose.body.error.details).toEqual([{ field: 'purpose', reason: 'UNKNOWN_FIELD' }]);
+    expectNotFoundEnvelope(await request(app.getHttpServer()).post('/driver/auth/send-otp').send({}));
+  });
+
   it('an unknown route returns 404 with the error envelope', async () => {
     const response = await request(app.getHttpServer()).get('/no-such-route').expect(404);
 

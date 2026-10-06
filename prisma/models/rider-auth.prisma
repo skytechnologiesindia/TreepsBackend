@@ -1,5 +1,6 @@
 enum OtpPurpose {
   RIDER_AUTH
+  DRIVER_AUTH
 }
 
 enum DevicePlatform {

@@ -34,7 +34,8 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [ ] Owner answers: DLT registration for India SMS
 - [x] Documented in `input-validation.md`: section 2b (new shared types: IndianMobile, Email, PersonName, OtpCode, OpaqueToken, DeviceId, AppVersion, fcmToken limits) and section 6 (six startup keys). The date-only type is still not needed until a date-of-birth field is built
 - [x] Built: `IndianMobile` in `src/common/validation/fields.ts` (spec in `fields.spec.ts`)
-- [ ] Still to build: `Email`, `PersonName`, `OtpCode`, `OpaqueToken`, `DeviceId`, `AppVersion`
+- [x] Built: `OtpCode`, `DeviceId`, `AppVersion` (specs in `fields.spec.ts`)
+- [ ] Still to build: `Email`, `PersonName`, `OpaqueToken`
 - [ ] Error registry: type the six rows (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, REGISTRATION_TOKEN_INVALID, EMAIL_IN_USE) into `src/common/errors/error-registry.ts`, and update `error-registry.spec.ts` (13 becomes 19 codes; 503 added to the allowed statuses, decision 130)
 - [x] Prisma models typed (`prisma/models/rider.prisma`, `rider-auth.prisma`), `prisma validate` and `format` clean, migration `20261005101140_rider_auth_data_model` created with `--create-only` and hand-edited (safe name change); dev DB checked first (localhost `treeps_db`, 0 rows)
 - [x] Migration tested on a scratch database (2 fake old-format riders: names merged, dates and gender kept, schema diff empty), `treeps_db` backed up (`C:\Users\HP\Documents\treeps_db-backup-2026-10-05.dump`), migration applied to `treeps_db` with `prisma migrate deploy`, `prisma generate` run (2026-10-05)
@@ -44,12 +45,18 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [x] In-memory rate-limit guard built, hand-written with no dependency (`src/common/rate-limit/`, numbers in `src/config/rate-limits.ts`, decision 147); it is NOT attached to any route yet
 - [ ] Attach `@RateLimit` to each rider auth route when it is built (numbers: `RATE_LIMITS`); done for send-otp
 - [ ] Retry-After header on RATE_LIMITED: TO DECIDE (none is sent today)
-- [x] `send-otp` code and tests (`src/modules/rider-auth/`, decision 148)
-- [ ] `verify-otp` code and tests (login, new rider, banned; the race tests)
+- [x] `send-otp` code and tests (shared `src/modules/otp/`, rider route in `src/modules/rider-auth/`, decisions 148 and 150)
+- [x] Driver `send-otp` (`src/modules/driver-auth/`, `docs/api/driver-send-otp.md`, `DRIVER_AUTH` migration applied, shared code in `src/modules/otp/`, decision 150)
+- [ ] Driver `verify-otp` and `register`: need their own docs and owner approval first; driver verify-otp must read only `DRIVER_AUTH` sessions
+- [x] Driver `send-otp` (`src/modules/driver-auth/`, `api/driver-send-otp.md`, decision 150): `DRIVER_AUTH` migration applied (backup `C:\Users\HP\Documents\treeps_db-backup-2026-10-06.dump`)
+- [ ] Owner approves `api/driver-send-otp.md` (built first on instruction); driver verify-otp and register need their own docs before any code
+- [x] `verify-otp` code and tests (`src/modules/rider-auth/`, decision 149)
+- [ ] Audit log lines (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`, ...): need a request context so a service can log the `requestId`
 - [ ] `register` code and tests (including the race tests)
 - [ ] `refresh` code and tests (rotation, reuse detection)
 - [ ] `logout` code and tests
-- [ ] JWT signing and the Rider role in the access token (claims, algorithm and secret: TO DECIDE); the guard and the authenticated-user decorator for later APIs (F4)
+- [x] Access token signing: hand-written HS256, claims iss, sub, role, deviceId (decisions 133, 149)
+- [ ] The JWT guard and the authenticated-user decorator for later APIs (F4); `verifyHs256Jwt` is ready for it
 - [x] Removed the Firebase auth code (`src/auth/`), its module registration and tests, and both "remove in F4" allowlist entries (decision 146)
 - [ ] Final cleanup: remove `firebase-admin` from `package.json`
 - [ ] Docs and changelog updated; owner says when to commit

@@ -51,7 +51,7 @@ Never in the reply: the provider session id, `attempts`, any token hash, the rid
 ## Order of operations
 1. Validate the body.
 2. **Per-phone limit (decision 121):** at most 10 verify attempts per phone per hour, counted from the `attempts` of that phone's `OtpSession` rows created in the last hour, so the count survives a restart and works across instances. Over the limit: `RATE_LIMITED`, no provider call. There is no per-IP limit on this route in the MVP.
-3. Load the newest `OtpSession` for this phone:
+3. Load the newest `OtpSession` for this phone **with purpose `RIDER_AUTH`** (a driver session for the same phone is never used and its attempts do not count toward the limit above):
    - none, or already used (`verifiedAt` set): `OTP_INVALID`;
    - `expiresAt` passed: `OTP_EXPIRED`;
    - `attempts` already 5: `OTP_ATTEMPTS_EXCEEDED`.
@@ -96,9 +96,15 @@ All errors use the envelope in `standards/response-format.md`.
 | RATE_LIMITED | 429 | More than 10 verify attempts for this phone in the last hour | null | "Too many requests. Try again shortly." | Disable the button briefly |
 | INTERNAL_ERROR | 500 | A bug or a database failure | null | "Something went wrong. Please try again." | Show retry |
 
+## Where it lives
+`src/modules/rider-auth/`: `verify-otp.service.ts` (the order of operations above), `dto/verify-otp.dto.ts` and `dto/device.dto.ts` (the shared types `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion`, `OneOf`, `Text`, `Nested`), `access-token.service.ts` (the HS256 signer, secret `JWT_ACCESS_SECRET`), `rider-view.ts` (the `rider` object), and the route in `rider-auth.controller.ts`. The JWT is signed by `src/common/jwt/hs256-jwt.ts`, hand-written with Node's `crypto` and no library (decision 149). The time comes from the injectable clock (`src/common/clock.ts`).
+
+The service reads only sessions with purpose `RIDER_AUTH` (both for finding the newest session and for the 10-per-hour count), so a driver code for the same phone can never log a rider in, and driver attempts do not count toward the rider limit.
+
 ## Rate limit, logging and audit
 - Rate limit (decision 121): 10 verify attempts per phone per hour, on top of the per-session cap of 5 wrong attempts. At most 10 guesses per phone per hour against 1,000,000 possible codes. No per-IP limit on this route in the MVP.
 - Log: `requestId`, code, status. Never the phone, the OTP, tokens, token hashes, `fcmToken`, the provider session id or URL.
+- **Audit log lines are not emitted yet.** A service has no access to the `requestId` (raw request access is banned, and no request context exists), so the `login.succeeded`, `otp.locked`, `login.banned` and `registration_token.issued` lines wait for a request context (TRACKER). Until then the errors are logged by the exception filter with the `requestId`, and the events can be derived from the tables.
 - Audit events: no audit table in the MVP (decision 134). One structured log line per event in the existing key=value style, with the `requestId` and a fixed event name only (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`); never the phone or ids. They can also be derived from `OtpSession`, `Device` and `Rider.lastLoginAt`.
 
 ## Edge cases and known limitations
@@ -131,3 +137,5 @@ All errors use the envelope in `standards/response-format.md`.
 | 2026-10-05 | Status changed from PROPOSED to APPROVED; verify-otp limited to 10 per phone per hour (replaces the open IP limit); DELETED riders get `ACCOUNT_BANNED` (plain unique phone) | Owner approval and decisions 120 to 129 |
 | 2026-10-05 | device field rules; HS256 JWT claims; no audit table; DELETED confirmed as `ACCOUNT_BANNED`; shared types named | Owner decisions 130 to 140 |
 | 2026-10-05 | `appVersion` rule; devices per rider, ban wording and token window settled (decision 144) | Owner decisions 141 to 145 |
+| 2026-10-06 | Built: route, service, DTOs, HS256 access token (no new dependency), rider view; audit log lines deferred until a request context exists | verify-otp code step (decision 149) |
+| 2026-10-06 | Reads only `RIDER_AUTH` sessions (a driver session is ignored) | Driver send-otp added `DRIVER_AUTH` sessions for the same phones (decision 150) |

@@ -1,42 +1,46 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { OtpPurpose } from '@prisma/client';
+import type { OtpPurpose } from '@prisma/client';
 import { CLOCK, type Clock } from '../../common/clock.js';
 import { AppException } from '../../common/errors/app.exception.js';
 import { OTP_LIFETIME_MS } from '../../config/otp.js';
 import { RATE_LIMITS } from '../../config/rate-limits.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { OTP_PROVIDER, type OtpProvider } from './otp/otp-provider.js';
+import { OTP_PROVIDER, type OtpProvider } from './provider/otp-provider.js';
 
 export interface SendOtpResult {
   expiresInSeconds: number;
   resendAfterSeconds: number;
 }
 
+// Sends an OTP for one purpose (RIDER_AUTH or DRIVER_AUTH). The purpose comes from the route that
+// calls this, never from the request body. docs/api/rider-send-otp.md and driver-send-otp.md,
+// "Order of checks". This never reads any account table and gives the same reply for every phone.
+// The provider session id is stored here and never returned.
 @Injectable()
-export class RiderAuthService {
+export class SendOtpService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(OTP_PROVIDER) private readonly otpProvider: OtpProvider,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
-  // docs/api/rider-send-otp.md, "Order of checks". This never reads the Rider table and gives the
-  // same reply for every phone. The provider session id is stored here and never returned.
-  async sendOtp(phoneNumber: string): Promise<SendOtpResult> {
+  async sendOtp(purpose: OtpPurpose, phoneNumber: string): Promise<SendOtpResult> {
     const now = this.clock();
 
     // Per-phone limits, counted from OtpSession rows so they survive a restart and are shared
-    // between server instances. Two simultaneous sends may both pass: accepted (decision 144).
+    // between server instances. They are per phone AND per purpose: a rider session does not count
+    // toward a driver's limits, and the other way round. Two simultaneous sends may both pass:
+    // accepted (decision 144).
     const cooldownStart = new Date(now.getTime() - RATE_LIMITS.sendOtp.resendCooldownMs);
     const tooSoon = await this.prisma.otpSession.findFirst({
-      where: { phoneNumber, createdAt: { gt: cooldownStart } },
+      where: { phoneNumber, purpose, createdAt: { gt: cooldownStart } },
       select: { id: true },
     });
     if (tooSoon) throw new AppException('RATE_LIMITED');
 
     const hourStart = new Date(now.getTime() - RATE_LIMITS.sendOtp.phone.windowMs);
     const sentLastHour = await this.prisma.otpSession.count({
-      where: { phoneNumber, createdAt: { gt: hourStart } },
+      where: { phoneNumber, purpose, createdAt: { gt: hourStart } },
     });
     if (sentLastHour >= RATE_LIMITS.sendOtp.phone.limit) throw new AppException('RATE_LIMITED');
 
@@ -53,7 +57,7 @@ export class RiderAuthService {
     await this.prisma.otpSession.create({
       data: {
         phoneNumber,
-        purpose: OtpPurpose.RIDER_AUTH,
+        purpose,
         providerSessionId,
         expiresAt: new Date(now.getTime() + OTP_LIFETIME_MS),
         createdAt: now,

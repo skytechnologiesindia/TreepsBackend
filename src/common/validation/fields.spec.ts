@@ -1,6 +1,8 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
+  AppVersion,
+  DeviceId,
   IndianMobile,
   Latitude,
   Longitude,
@@ -8,6 +10,7 @@ import {
   Nested,
   NestedList,
   OneOf,
+  OtpCode,
   Optional,
   Page,
   PageSize,
@@ -54,6 +57,15 @@ class IndianContact {
 }
 class OptionalIndianContact {
   @Optional(IndianMobile()) phoneNumber?: string;
+}
+class Code {
+  @Required(OtpCode()) otp!: string;
+}
+class Install {
+  @Required(DeviceId()) deviceId!: string;
+}
+class Build {
+  @Required(AppVersion()) appVersion!: string;
 }
 class Wide {
   @Required(
@@ -259,6 +271,67 @@ describe('IndianMobile', () => {
     const instance = plainToInstance(IndianContact, { phoneNumber: ' 9477172214' });
     await validate(instance, OPTIONS);
     expect(instance.phoneNumber).toBe(' 9477172214');
+  });
+});
+
+describe('OtpCode', () => {
+  it.each(['012345', '123456', '000000'])('accepts %j', async (otp) => {
+    expect(await problems(Code, { otp })).toEqual([]);
+  });
+
+  it.each(['12345', '1234567', '12a456', ' 12345', '123456 ', '١٢٣٤٥٦', '', '12 456'])(
+    'rejects %j as INVALID_FORMAT',
+    async (otp) => {
+      expect(await problems(Code, { otp })).toEqual([['otp', 'INVALID_FORMAT']]);
+    },
+  );
+
+  it('a JSON number is WRONG_TYPE, and a missing or null value is REQUIRED', async () => {
+    expect(await problems(Code, { otp: 123456 })).toEqual([['otp', 'WRONG_TYPE']]);
+    expect(await problems(Code, {})).toEqual([['otp', 'REQUIRED']]);
+    expect(await problems(Code, { otp: null })).toEqual([['otp', 'REQUIRED']]);
+  });
+});
+
+describe('DeviceId', () => {
+  it.each(['9f2c1b7e-3a4d-4c55-8e21-0d6f5a1b2c3d', 'abc_123', 'a', 'A-b_9', 'x'.repeat(64)])('accepts %j', async (deviceId) => {
+    expect(await problems(Install, { deviceId })).toEqual([]);
+  });
+
+  it('rejects an empty string as TOO_SHORT and 65 characters as TOO_LONG', async () => {
+    expect(await problems(Install, { deviceId: '' })).toEqual([['deviceId', 'TOO_SHORT']]);
+    expect(await problems(Install, { deviceId: 'x'.repeat(65) })).toEqual([['deviceId', 'TOO_LONG']]);
+  });
+
+  it.each(['device 1', 'dev:1', 'dev.1', 'dev/1', ' abc', 'abc ', 'é', '😀', 'abc\n'])('rejects %j as INVALID_FORMAT', async (deviceId) => {
+    expect(await problems(Install, { deviceId })).toEqual([['deviceId', 'INVALID_FORMAT']]);
+  });
+
+  it('a bad character in a 65-character value is INVALID_FORMAT (the first reason wins)', async () => {
+    expect(await problems(Install, { deviceId: 'x'.repeat(64) + ' ' })).toEqual([['deviceId', 'INVALID_FORMAT']]);
+  });
+
+  it('a number is WRONG_TYPE and a missing value is REQUIRED', async () => {
+    expect(await problems(Install, { deviceId: 12 })).toEqual([['deviceId', 'WRONG_TYPE']]);
+    expect(await problems(Install, {})).toEqual([['deviceId', 'REQUIRED']]);
+  });
+});
+
+describe('AppVersion', () => {
+  it.each(['1.4.2', '10.0.123', '999.999.999', '0.0.0'])('accepts %j', async (appVersion) => {
+    expect(await problems(Build, { appVersion })).toEqual([]);
+  });
+
+  it.each(['1.4', 'v1.4.2', '1.4.2-beta', '1.4.2.1', '1.4.1000', '', '1..2', '1.4.2 ', ' 1.4.2', '١.٤.٢', 'a.b.c', '1.4.2\n'])(
+    'rejects %j as INVALID_FORMAT',
+    async (appVersion) => {
+      expect(await problems(Build, { appVersion })).toEqual([['appVersion', 'INVALID_FORMAT']]);
+    },
+  );
+
+  it('a number is WRONG_TYPE and a missing value is REQUIRED', async () => {
+    expect(await problems(Build, { appVersion: 1.4 })).toEqual([['appVersion', 'WRONG_TYPE']]);
+    expect(await problems(Build, {})).toEqual([['appVersion', 'REQUIRED']]);
   });
 });
 

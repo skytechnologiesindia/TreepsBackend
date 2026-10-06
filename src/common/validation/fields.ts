@@ -102,6 +102,42 @@ export function IndianMobile(): FieldType {
   };
 }
 
+// The OTP the rider typed: exactly 6 ASCII digits, as text so a leading zero survives.
+const OTP_CODE = /^[0-9]{6}$/;
+export function OtpCode(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || OTP_CODE.test(v)),
+    ],
+  };
+}
+
+// The app's install id: 1 to 64 characters from A-Z a-z 0-9 _ -. The shape check allows an empty
+// string on purpose, so an empty value is TOO_SHORT (and not INVALID_FORMAT, which would win).
+const DEVICE_ID_SHAPE = /^[A-Za-z0-9_-]*$/;
+export function DeviceId(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || DEVICE_ID_SHAPE.test(v)),
+      check(CHECK_KEYS.tooShort, (v) => !isString(v) || v.length >= 1),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || v.length <= 64),
+    ],
+  };
+}
+
+// The app version: MAJOR.MINOR.PATCH, 1 to 3 ASCII digits each (so 5 to 11 characters).
+const APP_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+export function AppVersion(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || APP_VERSION.test(v)),
+    ],
+  };
+}
+
 const UTC_SHAPE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/;
 function parseUtc(value: unknown): number | undefined {
   if (!isString(value)) return undefined;

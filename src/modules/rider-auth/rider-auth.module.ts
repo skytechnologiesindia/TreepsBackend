@@ -1,22 +1,21 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CLOCK, systemClock } from '../../common/clock.js';
 import type { ValidatedEnv } from '../../config/env.validation.js';
-import { createOtpProvider } from './otp/otp-provider.factory.js';
-import { OTP_PROVIDER } from './otp/otp-provider.js';
+import { OtpModule } from '../otp/otp.module.js';
+import { AccessTokenService } from './access-token.service.js';
 import { RiderAuthController } from './rider-auth.controller.js';
-import { RiderAuthService } from './rider-auth.service.js';
+import { VerifyOtpService } from './verify-otp.service.js';
 
 @Module({
+  imports: [OtpModule],
   controllers: [RiderAuthController],
   providers: [
-    RiderAuthService,
-    { provide: CLOCK, useValue: systemClock },
+    VerifyOtpService,
     {
-      provide: OTP_PROVIDER,
+      provide: AccessTokenService,
       inject: [ConfigService],
       useFactory: (config: ConfigService<ValidatedEnv, true>) =>
-        createOtpProvider(config.get('OTP_PROVIDER', { infer: true }), config.get('FAKE_OTP_CODE', { infer: true })),
+        new AccessTokenService(config.get('JWT_ACCESS_SECRET', { infer: true })),
     },
   ],
 })

@@ -17,6 +17,7 @@ export interface OtpSessionRow {
 
 interface Where {
   phoneNumber?: string;
+  purpose?: string;
   createdAt?: { gt: Date };
 }
 
@@ -25,6 +26,7 @@ export function inMemoryPrisma() {
   let nextId = 1;
   const matches = (row: OtpSessionRow, where: Where) =>
     (where.phoneNumber === undefined || row.phoneNumber === where.phoneNumber) &&
+    (where.purpose === undefined || row.purpose === where.purpose) &&
     (where.createdAt === undefined || row.createdAt.getTime() > where.createdAt.gt.getTime());
 
   const otpSession = {
