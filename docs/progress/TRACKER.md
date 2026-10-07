@@ -36,7 +36,7 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [x] Built: `IndianMobile` in `src/common/validation/fields.ts` (spec in `fields.spec.ts`)
 - [x] Built: `OtpCode`, `DeviceId`, `AppVersion` (specs in `fields.spec.ts`)
 - [ ] Still to build: `Email`, `PersonName`, `OpaqueToken`
-- [ ] Error registry: type the six rows (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, REGISTRATION_TOKEN_INVALID, EMAIL_IN_USE) into `src/common/errors/error-registry.ts`, and update `error-registry.spec.ts` (13 becomes 19 codes; 503 added to the allowed statuses, decision 130)
+- [x] Error registry: the six rows were typed into `src/common/errors/error-registry.ts`, and update `error-registry.spec.ts` (done; the 2026-10-07 redesign removes `REGISTRATION_TOKEN_INVALID` again, 19 becomes 18, see the redesign block below)
 - [x] Prisma models typed (`prisma/models/rider.prisma`, `rider-auth.prisma`), `prisma validate` and `format` clean, migration `20261005101140_rider_auth_data_model` created with `--create-only` and hand-edited (safe name change); dev DB checked first (localhost `treeps_db`, 0 rows)
 - [x] Migration tested on a scratch database (2 fake old-format riders: names merged, dates and gender kept, schema diff empty), `treeps_db` backed up (`C:\Users\HP\Documents\treeps_db-backup-2026-10-05.dump`), migration applied to `treeps_db` with `prisma migrate deploy`, `prisma generate` run (2026-10-05)
 - [x] Config (done, `src/config/env.validation.ts`, `.env.example`, specs updated): `OTP_PROVIDER` (twofactor or fake, required), `ALLOW_FAKE_OTP` (must be `true` with fake), `FAKE_OTP_CODE` (6 digits, required with fake), `TWOFACTOR_API_KEY` (required with twofactor), `TRUST_PROXY_HOPS` (0 to 10, default 0), `JWT_ACCESS_SECRET` (32 characters or more, required); each gets a validation rule in `src/config/env.validation.ts` and a line in `.env.example` in the same commit; the app refuses to start with the fake provider in production
@@ -70,6 +70,18 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [ ] Docs and changelog updated; owner says when to commit
 
 Admin visibility (CLAUDE.md): `GET /v1/admin/riders`, `GET /v1/admin/riders/:id`, `GET /v1/admin/metrics/riders` (proposed in `api/rider-register.md`). **Exception proposed in decision 119: the rider auth routes ship before admin auth.** The admin endpoints wait for admin authentication (no admin model or guard exists) and for the pagination shape (TO DECIDE).
+
+### Redesign 2026-10-07: verify once, finish the profile later (decisions 162 to 165)
+Docs updated, **code not changed, owner approval pending**: `api/rider-verify-otp.md`, `rider-register.md` (now authenticated complete-profile), new `rider-me.md` and `driver-me.md`, `standards/response-format.md`, `rider-send-otp.md`.
+- [ ] Owner approves the redesign docs and answers the TO DECIDE items (route rename, 200 vs 201, email required, `PROFILE_PENDING` as column default, drop the two `OtpSession` columns, `/me` banned behaviour, guard global vs per route, abandoned-row cleanup)
+- [ ] Migration (backup first, never `migrate reset` or `db push`): `RiderStatus` + `PROFILE_PENDING`, `Rider.fullName` nullable; later maybe drop `OtpSession.registrationTokenHash` and `registrationExpiresAt`
+- [ ] JWT guard (`verifyHs256Jwt` exists), `@Roles`, `@CurrentUser`, and a decision on `@Public()` for the open routes
+- [ ] Rider `verify-otp.service.ts`: create Rider + Device + RefreshToken in one transaction for a new phone; let `PROFILE_PENDING` log in; `CONFLICT` on a phone race; remove the registration-token branch
+- [ ] Rider `register.service.ts`, `register.dto.ts`, controller: complete-profile (conditional update, 200, `{ rider }`); `rider-view.ts` with nullable `fullName`
+- [ ] `GET /v1/rider/me` and `GET /v1/driver/me` (controllers, services)
+- [ ] Error registry: remove `REGISTRATION_TOKEN_INVALID` and its spec rows (19 becomes 18); `OpaqueToken` stays (refresh token)
+- [ ] Rewrite tests: `register.http.spec.ts`, `register.service.spec.ts`, `register.pg.spec.ts`, `verify-otp.*.spec.ts`, `error-registry.spec.ts`, `real-routes.spec.ts`; add me and guard specs
+- [ ] Admin endpoints (still deferred): show `PROFILE_PENDING` riders and the profile completion rate
 
 ## L0 checklist
 The owner typed the code. Step 1 was a read-only orientation.
@@ -155,6 +167,6 @@ Piece notes:
 - Banned-patterns scan is line-based: a `@Controller(` whose path string is on the next line slips past the "no version in a controller path" rule (see `api-standard.md`, section 8). Fix only if it ever appears.
 - Rider register: access tokens stay valid for up to 15 minutes after a logout, ban or token revocation (stateless JWT); the deferred `tokenVersion` column would close that gap.
 - Rider register: `SavedPlace` and `EmergencyContact` have no index on `riderId` (existing gap, reported only).
-- Confirm the error messages of the six rider-auth codes (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, REGISTRATION_TOKEN_INVALID, EMAIL_IN_USE) and the ACCOUNT_BANNED wording for login; they are still marked "(proposed)" in `response-format.md`.
+- Confirm the error messages of the six rider-auth codes (OTP_INVALID, OTP_EXPIRED, OTP_ATTEMPTS_EXCEEDED, OTP_PROVIDER_ERROR, EMAIL_IN_USE; `REGISTRATION_TOKEN_INVALID` was removed by the 2026-10-07 redesign) and the ACCOUNT_BANNED wording for login; they are still marked "(proposed)" in `response-format.md`.
 - "M0" and "M4" are the owner's milestone names (M0 confirms the 2Factor request format, M4 needs the real 2Factor client); the milestone list is not written in the repo docs yet.
 - Do not deploy before F4: the L0 estimate route has no login (decision 81). The old Firebase mock-token hole is gone with the code.

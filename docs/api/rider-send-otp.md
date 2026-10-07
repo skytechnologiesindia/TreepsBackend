@@ -6,7 +6,7 @@ Part of one phone-OTP flow with four sibling docs: `rider-verify-otp.md`, `rider
 
 ```
 send-otp -> verify-otp -> (existing rider) tokens                 = login
-                       -> (unknown phone) registrationToken -> register -> tokens
+                       -> (unknown phone) Rider created (PROFILE_PENDING) + tokens -> register (access token) completes the profile
 refresh: new token pair, rotating        logout: revoke this device's token
 ```
 
@@ -90,7 +90,7 @@ Startup rules (final key names, decision 139: `OTP_PROVIDER`, `ALLOW_FAKE_OTP`, 
 - Residual risk: the double gate stops an accidental fake provider, but a deployed `development` server with both variables set would still accept the fixed code, and anyone who knows it could log in as any phone. Keep both variables out of every deployed environment file.
 
 ## State changes
-- Before: no active session for this phone. After: one new `OtpSession` row (`phoneNumber`, `purpose` `RIDER_AUTH`, `providerSessionId`, `attempts` 0, `expiresAt` = now + 5 min; `verifiedAt`, `consumedAt`, `registrationTokenHash`, `registrationExpiresAt` all null).
+- Before: no active session for this phone. After: one new `OtpSession` row (`phoneNumber`, `purpose` `RIDER_AUTH`, `providerSessionId`, `attempts` 0, `expiresAt` = now + 5 min; `verifiedAt`, `consumedAt`, `registrationTokenHash` and `registrationExpiresAt` (unused since the 2026-10-07 redesign) all null).
 - **Only the newest session for a phone and purpose is valid.** A new send makes all older ones of the same purpose unusable. No extra column is needed: verify-otp reads the row with the latest `createdAt`.
 - Idempotency: natural. A repeat call inside the cooldown is `RATE_LIMITED` and sends nothing. There is no `Idempotency-Key` header in the MVP.
 - Concurrency: two simultaneous sends for one phone could both pass the cooldown check and send two SMS. No mitigation in the MVP: the rare duplicate SMS is accepted because the hourly cap still holds (decision 144).
@@ -163,3 +163,4 @@ All errors use the envelope in `standards/response-format.md`. Messages come onl
 | 2026-10-06 | Shared code moved to `src/modules/otp/` and made purpose-aware (per phone and per purpose limits); rider behavior unchanged; `DRIVER_AUTH` exists for the driver route | Driver send-otp (decision 150) |
 | 2026-10-06 | Send logic moved to `src/modules/otp/` and takes a purpose; counts per phone and per purpose; rider behavior unchanged; driver route in `driver-send-otp.md` | Driver send-otp (decision 150) |
 | 2026-10-07 | Built `TwoFactorOtpProvider` (request and reply handling, key redaction, `TWOFACTOR_TEMPLATE`); the "not built yet" startup refusal no longer applies | real 2Factor provider step |
+| 2026-10-07 | Flow note: verify-otp creates the Rider for a new phone; register is an authenticated complete-profile call (no registration token) | Owner instruction of 2026-10-07 (decision 162) |
