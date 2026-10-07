@@ -17,6 +17,14 @@ export function Optional(type: FieldType): PropertyDecorator {
   return applyDecorators(ValidateIf((_object, value) => value !== undefined), ...type.checks);
 }
 
+// For the few fields an API doc marks as nullable: omitted and null both skip every check.
+export function OptionalNullable(type: FieldType): PropertyDecorator {
+  return applyDecorators(
+    ValidateIf((_object, value) => value !== undefined && value !== null),
+    ...type.checks,
+  );
+}
+
 function check(key: CheckKey, passes: (value: unknown) => boolean): PropertyDecorator {
   return ValidateBy({
     name: key,
@@ -138,6 +146,67 @@ export function AppVersion(): FieldType {
   };
 }
 
+// A registration or refresh token: base64url of 32 random bytes, always 43 characters.
+const OPAQUE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+export function OpaqueToken(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || OPAQUE_TOKEN.test(v)),
+    ],
+  };
+}
+
+// A person's name (decisions 135 and 141): 2 to 100 code points; Unicode letters, combining marks,
+// space, . ' ’ and -. Nothing is trimmed or fixed: a leading, trailing or double space, and a
+// hyphen that is first, last or doubled, are rejected. "" is REQUIRED, as for Text.
+const PERSON_NAME_CHARACTERS = /^[\p{L}\p{M} .'’-]+$/u;
+function personNameShapeOk(value: string): boolean {
+  return (
+    PERSON_NAME_CHARACTERS.test(value) &&
+    !value.startsWith(' ') &&
+    !value.endsWith(' ') &&
+    !value.includes('  ') &&
+    !value.startsWith('-') &&
+    !value.endsWith('-') &&
+    !value.includes('--')
+  );
+}
+export function PersonName(): FieldType {
+  const blank = (v: unknown) => v === '';
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.required, (v) => !blank(v)),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || blank(v) || personNameShapeOk(v)),
+      check(CHECK_KEYS.tooShort, (v) => !isString(v) || blank(v) || codePointLength(v) >= 2),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || codePointLength(v) <= 100),
+    ],
+  };
+}
+
+// An email address (decisions 136, 142 and 145): at most 254 characters, no whitespace, no
+// uppercase (the app lowercases first, because a Postgres unique index is case-sensitive), and
+// local@domain with exactly one @, a non-empty local part and a domain with a dot and no empty part.
+function emailShapeOk(value: string): boolean {
+  if (/\s/u.test(value) || value !== value.toLowerCase()) return false;
+  const parts = value.split('@');
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  if (local.length === 0) return false;
+  const labels = domain.split('.');
+  return labels.length >= 2 && labels.every((label) => label.length > 0);
+}
+export function Email(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || emailShapeOk(v)),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || v.length <= 254),
+    ],
+  };
+}
+
 const UTC_SHAPE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/;
 function parseUtc(value: unknown): number | undefined {
   if (!isString(value)) return undefined;
@@ -211,13 +280,15 @@ export function Uuid(options: { versions: 'all' | readonly UuidVersion[] }): Fie
 function codePointLength(text: string): number {
   return Array.from(text).length;
 }
-export function Text(limits: { min: number; max: number }): FieldType {
+// emptyIsTooShort: for an optional field, "" is a value the client chose to send, so it fails as
+// TOO_SHORT. The default stays REQUIRED, which is right for a required field (rider-register.md).
+export function Text(limits: { min: number; max: number; emptyIsTooShort?: boolean }): FieldType {
   const { min, max } = limits;
   assertLimit(
     Number.isSafeInteger(min) && Number.isSafeInteger(max) && min >= 0 && min <= max,
     'Text min/max',
   );
-  const blank = (v: unknown) => v === '' && min >= 1;
+  const blank = (v: unknown) => v === '' && min >= 1 && limits.emptyIsTooShort !== true;
   return {
     checks: [
       check(CHECK_KEYS.wrongType, isString),

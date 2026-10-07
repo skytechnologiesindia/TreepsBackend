@@ -4,7 +4,9 @@ import { RateLimit } from '../../common/rate-limit/rate-limit.decorator.js';
 import { RATE_LIMITS } from '../../config/rate-limits.js';
 import { SendOtpDto } from '../otp/dto/send-otp.dto.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
+import { RegisterDto } from './dto/register.dto.js';
 import { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
+import { RegisterService } from './register.service.js';
 import { VerifyOtpService } from './verify-otp.service.js';
 
 // The /v1 prefix is added by setupApp; never write it here (api-standard.md section 8).
@@ -13,6 +15,7 @@ export class RiderAuthController {
   constructor(
     private readonly sendOtpService: SendOtpService,
     private readonly verifyOtpService: VerifyOtpService,
+    private readonly registerService: RegisterService,
   ) {}
 
   // Public route (no login). 20 requests per IP per hour; the per-phone limits are in the service.
@@ -31,5 +34,14 @@ export class RiderAuthController {
   @Post('verify-otp')
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.verifyOtpService.verifyOtp(dto);
+  }
+
+  // Public route (no login): the one-time registration token from verify-otp is the credential.
+  // 10 requests per IP per hour. 201 because a Rider is created.
+  @RateLimit({ name: 'register', ip: RATE_LIMITS.register.ip })
+  @HttpCode(201)
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.registerService.register(dto);
   }
 }

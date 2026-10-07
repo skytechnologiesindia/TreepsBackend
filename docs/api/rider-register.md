@@ -1,6 +1,6 @@
 # POST /v1/rider/auth/register
 
-Status: APPROVED (owner, 2026-10-05). Items still marked TO DECIDE must be resolved in this doc before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row.
+Status: APPROVED (owner, 2026-10-05). Built 2026-10-07 (see Where it lives). Items still marked TO DECIDE must be resolved in this doc before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row.
 
 The path `/v1/rider/auth/register` is APPROVED; the controller writes `@Controller('rider/auth')` and never `v1`. Sibling docs: `rider-send-otp.md`, `rider-verify-otp.md`, `rider-refresh.md`, `rider-logout.md`.
 
@@ -82,7 +82,7 @@ Never in the reply: `deletedAt`, `lastLoginAt`, the token hash, the provider ses
 ## Order of operations
 1. Throttler guard (IP): 10 registers per hour per IP (see Rate limit). Before everything else.
 2. Validate the body.
-3. Hash the registration token (SHA-256) and load the `OtpSession` whose `registrationTokenHash` matches. `REGISTRATION_TOKEN_INVALID` if there is none, `consumedAt` is set, `verifiedAt` is null, or `registrationExpiresAt` has passed.
+3. Hash the registration token (SHA-256) and load the `OtpSession` whose `registrationTokenHash` matches. `REGISTRATION_TOKEN_INVALID` if there is none, its purpose is not `RIDER_AUTH`, `consumedAt` is set, `verifiedAt` is null, or `registrationExpiresAt` is not in the future (the token is already invalid at the exact expiry instant).
 4. Pre-checks, before the token is consumed, so a fixable mistake does not burn it:
    - a Rider with this email already exists: `EMAIL_IN_USE`;
    - a Rider with the session's phone already exists (another session registered it first): `CONFLICT`. The app restarts at `send-otp` and the next `verify-otp` logs in.
@@ -93,6 +93,14 @@ Never in the reply: `deletedAt`, `lastLoginAt`, the token hash, the provider ses
    - create the first RefreshToken (SHA-256 hash only).
    A unique-constraint failure on email becomes `EMAIL_IN_USE`, and on phone becomes `CONFLICT`; the whole transaction rolls back, including `consumedAt`, so the token is usable again after the rider fixes the email.
 6. Sign the access token and reply 201.
+
+## Where it lives
+`src/modules/rider-auth/`: `register.service.ts` (`RegisterService.register`, the order of operations above), `dto/register.dto.ts` (`RegisterDto`, using `OpaqueToken`, `PersonName`, `Email`, `Text`, `Nested`, and the new `OptionalNullable` for city and state), and the route in `rider-auth.controller.ts` (`@RateLimit({ name: 'register', ip: RATE_LIMITS.register.ip })`, `@HttpCode(201)`). It reuses `AccessTokenService`, `riderView`, `newOpaqueToken` and `sha256Hex`, the same helpers verify-otp uses. The time comes from the injectable clock (`src/common/clock.ts`).
+
+- The new Device is created with `create` (a new rider has no device, so this equals an upsert).
+- How a unique violation is recognized: Prisma 7 with the pg adapter reports `P2002` and names the violated index in `meta.driverAdapterError.cause.constraint.index` (`Rider_email_key` or `Rider_phoneNumber_key`, checked against real Postgres on 2026-10-07). An index with `email` in its name becomes `EMAIL_IN_USE`, with `phoneNumber` becomes `CONFLICT`; any other error is not translated.
+- City and state: validated as sent (`""` is `TOO_SHORT`, through the `Text` option `emptyIsTooShort`), then trimmed by the service; nothing left stores `null`.
+- The `rider.registered` log line is **not emitted yet**, for the same reason as the verify-otp lines: a service has no access to the `requestId` (TRACKER).
 
 ## Reference data used
 Config values, never hardcoded: registration-token lifetime 600 s, access TTL 900 s, refresh TTL 2592000 s, the register rate limit. These are constants in one config file, not environment variables. The only new environment key here is `JWT_ACCESS_SECRET` (decisions 133 and 139; its rule is in `input-validation.md` section 6 and its `.env.example` line is added in the code commit). The OTP numbers and the provider settings belong to `rider-send-otp.md`.
@@ -327,6 +335,17 @@ Until then there is no way to suspend or block a rider through the API (`status`
 - End to end: send-otp, verify-otp (new phone), register, then logout and a second verify-otp for the same phone returns `isNewRider` false with tokens.
 - Secrets: no token, hash or phone in any log line.
 - Time: stored timestamps are UTC instants; `rider.createdAt` in the reply is ISO UTC.
+- A driver (`DRIVER_AUTH`) session's token is `REGISTRATION_TOKEN_INVALID`.
+- A failure at each step of the transaction (consume, create rider, device, refresh token) leaves nothing and the token still works; a unique violation on email or phone that happens after the pre-checks (a parallel registration) becomes `EMAIL_IN_USE` or `CONFLICT` and the token still works.
+
+## Race tests (real Postgres)
+The in-memory test database has no row locks and no unique indexes, so the race tests in the list above also run against real Postgres: `src/modules/rider-auth/register.pg.spec.ts`. They are **skipped unless `RUN_PG_TESTS=1`**, so `npm test` stays database-free. They use only a scratch database named `treeps_scratch_register`, a constant in `testing/scratch-db.ts`; only the host, port, user and password are read from `DATABASE_URL`, so they can never open `treeps_db`. They create the scratch database and its tables if missing (the SQL of `prisma/migrations`) and empty its four auth tables before and after.
+
+Run (PowerShell, from the project root; needs `DATABASE_URL` in `.env` and the local Postgres running):
+```
+$env:RUN_PG_TESTS = '1'; npx vitest run src/modules/rider-auth/register.pg.spec.ts
+```
+What they prove: two or eight simultaneous registrations with one token give exactly one 201; twenty such rounds never create two riders; two tokens for one phone give one 201 and one `CONFLICT` (the loser's `consumedAt` is rolled back); two tokens for one email give one 201 and one `EMAIL_IN_USE`, and the loser registers afterwards with another email; a failure injected after the rider, device and `consumedAt` were written rolls all of it back. A barrier holds every request until all have passed the pre-checks, so the race is forced inside the transaction, not left to timing.
 
 ## Changelog
 | Date | What changed | Why |
@@ -339,3 +358,4 @@ Until then there is no way to suspend or block a rider through the API (`status`
 | 2026-10-05 | `-` allowed in `fullName` (not first, last or doubled); `appVersion` rule; non-blocking items settled; section 2b approved | Owner decisions 141 to 145 |
 | 2026-10-06 | `OtpPurpose` gained `DRIVER_AUTH` | Driver send-otp (decision 150) |
 | 2026-10-06 | `OtpPurpose` gained `DRIVER_AUTH` (migration `20261006105503_add_driver_auth_otp_purpose`) | Driver send-otp (decision 150) |
+| 2026-10-07 | Built: route, service, DTO, rate limit, tests (in-memory and real-Postgres race tests); the token must belong to a `RIDER_AUTH` session; an expired token is invalid at the exact expiry instant; city and state `""` is `TOO_SHORT`; how a unique violation is recognized; `rider.registered` log line deferred until a request context exists | register code step (decision 151) |

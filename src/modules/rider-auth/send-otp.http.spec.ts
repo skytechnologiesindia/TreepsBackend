@@ -11,6 +11,7 @@ import { RiderAuthController } from './rider-auth.controller.js';
 import { AccessTokenService } from '../../common/jwt/access-token.service.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
 import { VerifyOtpService } from './verify-otp.service.js';
+import { RegisterService } from './register.service.js';
 import { inMemoryPrisma } from '../otp/testing/in-memory-prisma.js';
 
 const SECOND = 1000;
@@ -37,6 +38,7 @@ async function startApp(options: { failingProvider?: boolean } = {}) {
     providers: [
       SendOtpService,
       VerifyOtpService,
+      RegisterService,
       { provide: AccessTokenService, useValue: new AccessTokenService('placeholder-jwt-secret-0123456789abcdef') },
       { provide: PrismaService, useValue: prisma },
       { provide: OTP_PROVIDER, useValue: provider },

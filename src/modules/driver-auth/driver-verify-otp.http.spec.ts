@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { FakeOtpProvider } from '../otp/provider/fake-otp.provider.js';
 import { OTP_PROVIDER } from '../otp/provider/otp-provider.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
+import { RegisterService } from '../rider-auth/register.service.js';
 import { RiderAuthController } from '../rider-auth/rider-auth.controller.js';
 import { InMemoryAuthDb } from '../rider-auth/testing/in-memory-auth-db.js';
 import { VerifyOtpService } from '../rider-auth/verify-otp.service.js';
@@ -33,6 +34,7 @@ async function startApp() {
     providers: [
       SendOtpService,
       VerifyOtpService,
+      RegisterService,
       DriverVerifyOtpService,
       { provide: AccessTokenService, useValue: new AccessTokenService(SECRET) },
       { provide: PrismaService, useValue: db },

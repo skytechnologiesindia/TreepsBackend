@@ -3,6 +3,7 @@ import { validate } from 'class-validator';
 import {
   AppVersion,
   DeviceId,
+  Email,
   IndianMobile,
   Latitude,
   Longitude,
@@ -10,10 +11,13 @@ import {
   Nested,
   NestedList,
   OneOf,
+  OpaqueToken,
+  OptionalNullable,
   OtpCode,
   Optional,
   Page,
   PageSize,
+  PersonName,
   Phone,
   Required,
   Text,
@@ -652,5 +656,139 @@ describe('required limits are compile errors and bad limits throw', () => {
         UtcDate({ min: () => new Date(), max: () => new Date(Date.now() + 60_000) }),
       ).not.toThrow();
     });
+  });
+});
+
+class Token {
+  @Required(OpaqueToken()) token!: string;
+}
+class FullName {
+  @Required(PersonName()) name!: string;
+}
+class Mail {
+  @Optional(Email()) email?: string;
+}
+class Place {
+  @OptionalNullable(Text({ min: 1, max: 100, emptyIsTooShort: true })) city?: string | null;
+}
+
+describe('OpaqueToken', () => {
+  it('accepts 43 base64url characters', async () => {
+    expect(await problems(Token, { token: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO_-' })).toEqual([]);
+  });
+
+  it.each([
+    ['42 characters', 'a'.repeat(42)],
+    ['44 characters', 'a'.repeat(44)],
+    ['a plus sign', 'a'.repeat(42) + '+'],
+    ['a slash', 'a'.repeat(42) + '/'],
+    ['an equals sign', 'a'.repeat(42) + '='],
+    ['a space', 'a'.repeat(42) + ' '],
+    ['an empty string', ''],
+  ])('rejects %s as INVALID_FORMAT', async (_name, token) => {
+    expect(await problems(Token, { token })).toEqual([['token', 'INVALID_FORMAT']]);
+  });
+
+  it('rejects a number as WRONG_TYPE and a missing value as REQUIRED', async () => {
+    expect(await problems(Token, { token: 5 })).toEqual([['token', 'WRONG_TYPE']]);
+    expect(await problems(Token, {})).toEqual([['token', 'REQUIRED']]);
+  });
+});
+
+describe('PersonName', () => {
+  it.each(['Anita Kumari', "O'Brien", 'O’Brien', 'Dr. Singh', 'Mary-Jane', 'अनीता कुमारी', 'Ab'])(
+    'accepts %s',
+    async (name) => {
+      expect(await problems(FullName, { name })).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['a leading hyphen', '-Mary'],
+    ['a trailing hyphen', 'Mary-'],
+    ['a double hyphen', 'Mary--Jane'],
+    ['a digit', 'Anita1'],
+    ['a double space', 'Anita  Kumari'],
+    ['a leading space', ' Anita'],
+    ['a trailing space', 'Anita '],
+    ['a tab', 'Anita	Kumari'],
+    ['an emoji', 'Anita😀'],
+    ['a null character', 'Anita K'],
+  ])('rejects %s as INVALID_FORMAT', async (_name, name) => {
+    expect(await problems(FullName, { name })).toEqual([['name', 'INVALID_FORMAT']]);
+  });
+
+  it('rejects 1 character as TOO_SHORT and 101 as TOO_LONG, and accepts exactly 100', async () => {
+    expect(await problems(FullName, { name: 'A' })).toEqual([['name', 'TOO_SHORT']]);
+    expect(await problems(FullName, { name: 'A'.repeat(101) })).toEqual([['name', 'TOO_LONG']]);
+    expect(await problems(FullName, { name: 'A'.repeat(100) })).toEqual([]);
+  });
+
+  it('counts a Hindi name by code points, not bytes', async () => {
+    expect(await problems(FullName, { name: 'अ'.repeat(100) })).toEqual([]);
+    expect(await problems(FullName, { name: 'अ'.repeat(101) })).toEqual([['name', 'TOO_LONG']]);
+  });
+
+  it('rejects an empty string as REQUIRED, a number as WRONG_TYPE, a missing value as REQUIRED', async () => {
+    expect(await problems(FullName, { name: '' })).toEqual([['name', 'REQUIRED']]);
+    expect(await problems(FullName, { name: 7 })).toEqual([['name', 'WRONG_TYPE']]);
+    expect(await problems(FullName, {})).toEqual([['name', 'REQUIRED']]);
+  });
+});
+
+describe('Email', () => {
+  it.each(['anita@example.com', 'a.b+tag@mail.example.in'])('accepts %s', async (email) => {
+    expect(await problems(Mail, { email })).toEqual([]);
+  });
+
+  it('may be omitted, but null is WRONG_TYPE (decision 46)', async () => {
+    expect(await problems(Mail, {})).toEqual([]);
+    expect(await problems(Mail, { email: null })).toEqual([['email', 'WRONG_TYPE']]);
+  });
+
+  it.each([
+    ['an uppercase letter', 'Anita@example.com'],
+    ['an uppercase non-ASCII letter', 'anita@exampLE.com'.replace('L', 'É')],
+    ['a space', 'anita @example.com'],
+    ['a tab', 'anita	@example.com'],
+    ['no dot in the domain', 'anita@example'],
+    ['two @ signs', 'anita@@example.com'],
+    ['an empty local part', '@example.com'],
+    ['a leading dot in the domain', 'anita@.com'],
+    ['a trailing dot in the domain', 'anita@example.'],
+    ['an empty domain label', 'anita@example..com'],
+    ['no @ at all', 'anita.example.com'],
+    ['an empty string', ''],
+  ])('rejects %s as INVALID_FORMAT', async (_name, email) => {
+    expect(await problems(Mail, { email })).toEqual([['email', 'INVALID_FORMAT']]);
+  });
+
+  it('rejects 255 characters as TOO_LONG and accepts exactly 254', async () => {
+    const at = (total: number) => 'a'.repeat(total - '@example.com'.length) + '@example.com';
+    expect(await problems(Mail, { email: at(254) })).toEqual([]);
+    expect(await problems(Mail, { email: at(255) })).toEqual([['email', 'TOO_LONG']]);
+  });
+});
+
+describe('OptionalNullable with Text({ emptyIsTooShort })', () => {
+  it('accepts omitted and null', async () => {
+    expect(await problems(Place, {})).toEqual([]);
+    expect(await problems(Place, { city: null })).toEqual([]);
+  });
+
+  it('accepts a value and a whitespace-only value (trimming happens in the service)', async () => {
+    expect(await problems(Place, { city: 'Ranchi' })).toEqual([]);
+    expect(await problems(Place, { city: '   ' })).toEqual([]);
+  });
+
+  it('rejects "" as TOO_SHORT, 101 characters as TOO_LONG, a number as WRONG_TYPE, a null character as INVALID_FORMAT', async () => {
+    expect(await problems(Place, { city: '' })).toEqual([['city', 'TOO_SHORT']]);
+    expect(await problems(Place, { city: 'a'.repeat(101) })).toEqual([['city', 'TOO_LONG']]);
+    expect(await problems(Place, { city: 5 })).toEqual([['city', 'WRONG_TYPE']]);
+    expect(await problems(Place, { city: 'Ra nchi' })).toEqual([['city', 'INVALID_FORMAT']]);
+  });
+
+  it('leaves Text unchanged by default: an empty required text is still REQUIRED', async () => {
+    expect(await problems(Title, { t: '' })).toEqual([['t', 'REQUIRED']]);
   });
 });

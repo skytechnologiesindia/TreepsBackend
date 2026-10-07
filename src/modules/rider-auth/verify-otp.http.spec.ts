@@ -14,6 +14,7 @@ import { RiderAuthController } from './rider-auth.controller.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
 import { InMemoryAuthDb } from './testing/in-memory-auth-db.js';
 import { VerifyOtpService } from './verify-otp.service.js';
+import { RegisterService } from './register.service.js';
 
 const PHONE = '+919477172214';
 const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
@@ -44,6 +45,7 @@ async function startApp() {
     providers: [
       SendOtpService,
       VerifyOtpService,
+      RegisterService,
       { provide: AccessTokenService, useValue: new AccessTokenService(SECRET) },
       { provide: PrismaService, useValue: db },
       { provide: OTP_PROVIDER, useValue: provider },

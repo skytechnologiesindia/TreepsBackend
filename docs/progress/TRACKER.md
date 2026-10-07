@@ -43,7 +43,7 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [x] `OtpProvider` interface, `FakeOtpProvider`, provider chosen by `OTP_PROVIDER`; `twofactor` refuses to start with "twofactor client not built yet (blocked on M0)" (decision 148)
 - [ ] Real 2Factor client (5 s timeout, no retry) and its tests: blocked on M0
 - [x] In-memory rate-limit guard built, hand-written with no dependency (`src/common/rate-limit/`, numbers in `src/config/rate-limits.ts`, decision 147); it is NOT attached to any route yet
-- [ ] Attach `@RateLimit` to each rider auth route when it is built (numbers: `RATE_LIMITS`); done for send-otp
+- [ ] Attach `@RateLimit` to each rider auth route when it is built (numbers: `RATE_LIMITS`); done for send-otp and register
 - [ ] Retry-After header on RATE_LIMITED: TO DECIDE (none is sent today)
 - [x] `send-otp` code and tests (shared `src/modules/otp/`, rider route in `src/modules/rider-auth/`, decisions 148 and 150)
 - [x] Driver `send-otp` (`src/modules/driver-auth/`, `docs/api/driver-send-otp.md`, `DRIVER_AUTH` migration applied, shared code in `src/modules/otp/`, decision 150)
@@ -58,8 +58,9 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [ ] Owner approves `api/driver-send-otp.md` and `api/driver-verify-otp.md` (both built first on instruction)
 - [x] `verify-otp` code and tests (`src/modules/rider-auth/`, decision 149)
 - [x] `verify-otp` new-phone fix: marking the code used and storing the registration token hash are one conditional write, so a failure cannot burn the code without a token (2026-10-06; test injects the failure). Login path (ACTIVE rider) still marks the code used before its transaction: combining them is TO DECIDE
-- [ ] Audit log lines (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`, ...): need a request context so a service can log the `requestId`
-- [ ] `register` code and tests (including the race tests)
+- [ ] Audit log lines (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`, `rider.registered`, ...): need a request context so a service can log the `requestId`
+- [x] `register` code and tests (`src/modules/rider-auth/`, decision 151): in-memory tests plus race tests on real Postgres (`register.pg.spec.ts`, scratch database `treeps_scratch_register`, run with `RUN_PG_TESTS=1`, see `api/rider-register.md` "Race tests"); shared types `OpaqueToken`, `PersonName`, `Email` built; waiting for the owner to commit
+- [ ] `device.fcmToken` `""` gives `REQUIRED` but `input-validation.md` section 2b says `TOO_SHORT`: TO DECIDE (found during register; not changed)
 - [ ] `refresh` code and tests (rotation, reuse detection)
 - [ ] `logout` code and tests
 - [x] Access token signing: hand-written HS256, claims iss, sub, role, deviceId (decisions 133, 149)

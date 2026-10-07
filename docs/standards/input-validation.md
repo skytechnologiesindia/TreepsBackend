@@ -54,7 +54,7 @@ Needed by `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `
 | AppVersion | String in the form `MAJOR.MINOR.PATCH`: three groups of 1 to 3 ASCII digits separated by dots, regex `^\d{1,3}\.\d{1,3}\.\d{1,3}$` (so 5 to 11 characters; in JavaScript `\d` matches ASCII digits only). **(owner)** This replaces the earlier 1 to 20 character limit. | REQUIRED, WRONG_TYPE, INVALID_FORMAT | `1.4.2`, `10.0.123`, `999.999.999` | `1.4`, `v1.4.2`, `1.4.2-beta`, `1.4.2.1`, `1.4.1000` (4 digits), `""`, a 21-character string |
 | fcmToken | No new type: the existing `Text({ min: 1, max: 512 })`, wrapped in `Optional(...)`. No character set is checked beyond `Text` (U+0000 rejected). **(owner)** optional, 1 to 512 characters | WRONG_TYPE, INVALID_FORMAT, TOO_SHORT, TOO_LONG | a 163-character FCM token | `""` (TOO_SHORT), `null` (WRONG_TYPE, decision 46), 513 characters (TOO_LONG) |
 
-Built so far in `src/common/validation/fields.ts`: `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion` (with specs). Still to build: `Email`, `PersonName`, `OpaqueToken`.
+Built in `src/common/validation/fields.ts` (all with specs): `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion`, `Email`, `PersonName`, `OpaqueToken`. Two helpers for nullable optional text, built with register: `OptionalNullable(type)` (omitted and `null` both skip every check; used only where an API doc marks a field nullable, rule 10) and the `Text` option `emptyIsTooShort` (an optional field's `""` is `TOO_SHORT`; the default stays `REQUIRED`). Known mismatch, not changed: `device.fcmToken` uses plain `Text`, so `""` gives `REQUIRED` while the `fcmToken` row above says `TOO_SHORT` (TO DECIDE).
 
 Also used, already existing: `OneOf(['ANDROID', 'IOS'])` for `device.platform`, `Nested(() => DeviceDto)` for `device`, and `Text({ min: 1, max: 100 })` for `registeredCity` and `registeredState` (the server trims these two before storing, a documented normalization in `rider-register.md`).
 
@@ -136,3 +136,4 @@ Nest drops prototype keys (such as `__proto__`) from a request before validation
 | 2026-10-05 | PersonName allows `-` (not first, last or doubled); AppVersion regex is `^\d{1,3}\.\d{1,3}\.\d{1,3}$`; section 2b approved | Owner decisions 141 to 145 |
 | 2026-10-05 | Section 6 keys implemented in `src/config/env.validation.ts` with a drift-guard test over each row; reasons for `ALLOW_FAKE_OTP` spelled out | Rider auth config step |
 | 2026-10-05 | `IndianMobile` built in `fields.ts` with its spec | Rider auth shared types |
+| 2026-10-07 | `Email`, `PersonName` and `OpaqueToken` built; `OptionalNullable` and the `Text` option `emptyIsTooShort` added for the nullable city and state of register | Register code step (decision 151) |
