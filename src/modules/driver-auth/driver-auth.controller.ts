@@ -2,14 +2,19 @@ import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { OtpPurpose } from '@prisma/client';
 import { RateLimit } from '../../common/rate-limit/rate-limit.decorator.js';
 import { RATE_LIMITS } from '../../config/rate-limits.js';
+import { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { SendOtpDto } from '../otp/dto/send-otp.dto.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
+import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 // The /v1 prefix is added by setupApp; never write it here (api-standard.md section 8).
-// Only send-otp exists for drivers so far (docs/api/driver-send-otp.md).
+// send-otp (docs/api/driver-send-otp.md) and verify-otp (docs/api/driver-verify-otp.md).
 @Controller('driver/auth')
 export class DriverAuthController {
-  constructor(private readonly sendOtpService: SendOtpService) {}
+  constructor(
+    private readonly sendOtpService: SendOtpService,
+    private readonly driverVerifyOtpService: DriverVerifyOtpService,
+  ) {}
 
   // Public route (no login). Same body, validation, limits and errors as the rider route. The
   // purpose is fixed by this route and is never read from the request. The IP counters have their
@@ -19,5 +24,15 @@ export class DriverAuthController {
   @Post('send-otp')
   sendOtp(@Body() dto: SendOtpDto) {
     return this.sendOtpService.sendOtp(OtpPurpose.DRIVER_AUTH, dto.phoneNumber);
+  }
+
+  // Public route (no login). Logs in an existing driver, or creates the account for a new phone.
+  // Like the rider route: no per-IP limit; the per-phone limit (10 attempts an hour) is counted in
+  // the shared code check from OtpSession.attempts. HTTP 200 for both cases; the app switches on
+  // isNewDriver.
+  @HttpCode(200)
+  @Post('verify-otp')
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.driverVerifyOtpService.verifyOtp(dto);
   }
 }

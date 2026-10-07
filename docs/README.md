@@ -12,6 +12,7 @@
 | [api/estimate.md](api/estimate.md) | POST /v1/rides/estimate |
 | [api/rider-send-otp.md](api/rider-send-otp.md) | POST /v1/rider/auth/send-otp, the OTP provider and the flow diagram (draft) |
 | [api/driver-send-otp.md](api/driver-send-otp.md) | POST /v1/driver/auth/send-otp: same as the rider route with purpose DRIVER_AUTH (draft, built) |
+| [api/driver-verify-otp.md](api/driver-verify-otp.md) | POST /v1/driver/auth/verify-otp: logs in a driver or creates the account, role DRIVER, shared code check with the rider route (draft, built) |
 | [api/rider-verify-otp.md](api/rider-verify-otp.md) | POST /v1/rider/auth/verify-otp: login, new rider or banned (draft) |
 | [api/driver-send-otp.md](api/driver-send-otp.md) | POST /v1/driver/auth/send-otp: same as the rider route, purpose DRIVER_AUTH (draft) |
 | [api/rider-register.md](api/rider-register.md) | POST /v1/rider/auth/register, final Rider data model, admin endpoints (draft) |

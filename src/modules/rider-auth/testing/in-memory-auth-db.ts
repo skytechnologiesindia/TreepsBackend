@@ -1,5 +1,15 @@
-// A small in-memory stand-in for PrismaService, with the five tables the rider auth routes use. It
-// understands only the Prisma features those routes call (equality, null, lt, gt, increment,
+// What Prisma 7 with the pg adapter throws on a unique violation (checked against a real Postgres).
+class UniqueViolation extends Error {
+  readonly code = 'P2002';
+  readonly meta: Row;
+  constructor(index: string) {
+    super(`Unique constraint failed on ${index}`);
+    this.meta = { driverAdapterError: { cause: { kind: 'UniqueConstraintViolation', constraint: { index } } }, modelName: 'Rider' };
+  }
+}
+
+// A small in-memory stand-in for PrismaService, with the tables the rider and driver auth routes use. It
+// understands only the Prisma features those routes call (equality, null, lt, gt, count, increment,
 // decrement, orderBy createdAt desc, upsert on the riderId_deviceId key) and an interactive
 // $transaction that rolls back when the callback throws. Tests can make one operation fail.
 type Row = Record<string, any>;
@@ -27,7 +37,7 @@ function matches(row: Row, where: Row): boolean {
 function flattenWhere(where: Row): Row {
   const flat: Row = {};
   for (const [key, value] of Object.entries(where)) {
-    if (key === 'riderId_deviceId') Object.assign(flat, value);
+    if (key === 'riderId_deviceId' || key === 'driverId_deviceId') Object.assign(flat, value);
     else flat[key] = value;
   }
   return flat;
@@ -44,18 +54,20 @@ function applyData(row: Row, data: Row): void {
 }
 
 export class InMemoryAuthDb {
-  tables: Record<string, Row[]> = { otpSession: [], rider: [], device: [], refreshToken: [] };
+  tables: Record<string, Row[]> = { otpSession: [], rider: [], device: [], refreshToken: [], driver: [], driverDevice: [], driverRefreshToken: [] };
   private nextId = 1;
   // Make one operation throw, for example 'device.upsert' (used to test the transaction).
   failOn: string | null = null;
   // Make any write fail whose arguments match, for example one that carries registrationTokenHash.
   failWhen: ((operation: string, args: Row) => boolean) | null = null;
+  // The error the injected failures throw (default: a plain Error).
+  failError: Error | null = null;
   // How many times each operation was called, for example 'rider.findUnique'.
   calls: Record<string, number> = {};
 
   private touch(name: string, args: Row = {}): void {
     this.calls[name] = (this.calls[name] ?? 0) + 1;
-    if (this.failOn === name || this.failWhen?.(name, args)) throw new Error('injected database failure');
+    if (this.failOn === name || this.failWhen?.(name, args)) throw this.failError ?? new Error('injected database failure');
   }
 
   private table(name: string) {
@@ -63,8 +75,9 @@ export class InMemoryAuthDb {
     const defaults = (): Row => {
       const base: Row = { id: `id-${this.nextId++}` };
       if (name === 'otpSession') Object.assign(base, { attempts: 0, verifiedAt: null, consumedAt: null, registrationTokenHash: null, registrationExpiresAt: null, createdAt: NOW() });
-      if (name === 'refreshToken') Object.assign(base, { revokedAt: null, createdAt: NOW() });
-      if (name === 'device') Object.assign(base, { fcmToken: null });
+      if (name === 'refreshToken' || name === 'driverRefreshToken') Object.assign(base, { revokedAt: null, createdAt: NOW() });
+      if (name === 'device' || name === 'driverDevice') Object.assign(base, { fcmToken: null });
+      if (name === 'driver') Object.assign(base, { deletedAt: null });
       return base;
     };
     const find = (where: Row) => rows().filter((row) => matches(row, flattenWhere(where)));
@@ -78,6 +91,10 @@ export class InMemoryAuthDb {
       findUnique: async ({ where }: { where: Row }) => {
         this.touch(`${name}.findUnique`);
         return find(where)[0] ?? null;
+      },
+      count: async ({ where = {} }: { where?: Row }) => {
+        this.touch(`${name}.count`);
+        return find(where).length;
       },
       aggregate: async ({ where = {} }: { where?: Row; _sum: Row }) => {
         this.touch(`${name}.aggregate`);
@@ -98,6 +115,12 @@ export class InMemoryAuthDb {
       },
       create: async ({ data }: { data: Row }) => {
         this.touch(`${name}.create`, { data });
+        // Like the real unique indexes on Rider.phoneNumber, Rider.email and Driver.phoneNumber.
+        if (name === 'driver' && rows().some((r) => r.phoneNumber === data.phoneNumber)) throw new UniqueViolation('Driver_phoneNumber_key');
+        if (name === 'rider') {
+          if (rows().some((r) => r.phoneNumber === data.phoneNumber)) throw new UniqueViolation('Rider_phoneNumber_key');
+          if (data.email != null && rows().some((r) => r.email === data.email)) throw new UniqueViolation('Rider_email_key');
+        }
         const row = { ...defaults(), ...data };
         rows().push(row);
         return row;
@@ -120,6 +143,9 @@ export class InMemoryAuthDb {
   rider = this.table('rider');
   device = this.table('device');
   refreshToken = this.table('refreshToken');
+  driver = this.table('driver');
+  driverDevice = this.table('driverDevice');
+  driverRefreshToken = this.table('driverRefreshToken');
 
   // The callback runs on this same object; if it throws, every table goes back to how it was.
   async $transaction<T>(fn: (tx: InMemoryAuthDb) => Promise<T>): Promise<T> {
@@ -156,6 +182,22 @@ export class InMemoryAuthDb {
     };
     this.tables.rider.push(rider);
     return rider;
+  }
+
+  addDriver(overrides: Row = {}): Row {
+    const driver: Row = {
+      id: `driver-${this.nextId++}`,
+      phoneNumber: '+919477172214',
+      status: 'APPROVED',
+      isPhoneVerified: true,
+      lastLoginAt: null,
+      deletedAt: null,
+      createdAt: new Date('2026-01-02T03:04:05.678Z'),
+      updatedAt: new Date('2026-01-02T03:04:05.678Z'),
+      ...overrides,
+    };
+    this.tables.driver.push(driver);
+    return driver;
   }
 
   addSession(overrides: Row = {}): Row {

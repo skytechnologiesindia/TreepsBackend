@@ -2,7 +2,7 @@
 
 Status: Draft, built on the owner's instruction of 2026-10-06 ("add DRIVER send-otp, reusing the rider logic"). Every rule that is not stated here is the rule of `rider-send-otp.md`, which is APPROVED. Items marked TO DECIDE have no decision yet.
 
-The driver verify-otp and register routes are **not** built and have no doc yet (CLAUDE.md rule 4 applies to them). This route only sends the code.
+The driver verify-otp route is built and documented in `driver-verify-otp.md` (2026-10-07; it also creates the account, so there is no separate driver register route). This route only sends the code.
 
 The path `/v1/driver/auth/send-otp` is as instructed; the controller writes `@Controller('driver/auth')` and never `v1`.
 
@@ -51,7 +51,7 @@ One `OtpSession` row with `purpose` = `DRIVER_AUTH` (the `OtpPurpose` enum gaine
 The same table as `rider-send-otp.md`: `INVALID_INPUT` (400), `RATE_LIMITED` (429), `OTP_PROVIDER_ERROR` (503), `INTERNAL_ERROR` (500).
 
 ## Edge cases and known limitations
-- The rider verify-otp route reads only sessions with purpose `RIDER_AUTH`, so a driver code cannot log a rider in. A driver verify-otp route must do the same with `DRIVER_AUTH` when it is built.
+- The rider verify-otp route reads only sessions with purpose `RIDER_AUTH`, so a driver code cannot log a rider in. The driver verify-otp route does the same with `DRIVER_AUTH` (`driver-verify-otp.md`), through the same shared code check.
 - A phone number that belongs to both a rider and a driver is allowed here; whether one person may hold both accounts: TO DECIDE.
 - SMS cost, DLT registration and the 2Factor client: as in `rider-send-otp.md` (blocked on M0).
 
@@ -70,3 +70,4 @@ The same table as `rider-send-otp.md`: `INVALID_INPUT` (400), `RATE_LIMITED` (42
 | Date | What changed | Why |
 |---|---|---|
 | 2026-10-06 | Draft created and built: driver send-otp, purpose `DRIVER_AUTH`, per phone and per purpose limits | Owner instruction of 2026-10-06 |
+| 2026-10-07 | Notes updated: driver verify-otp is built (`driver-verify-otp.md`); no behavior change here | Driver verify-otp (decision 155) |

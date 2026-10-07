@@ -47,9 +47,15 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [ ] Retry-After header on RATE_LIMITED: TO DECIDE (none is sent today)
 - [x] `send-otp` code and tests (shared `src/modules/otp/`, rider route in `src/modules/rider-auth/`, decisions 148 and 150)
 - [x] Driver `send-otp` (`src/modules/driver-auth/`, `docs/api/driver-send-otp.md`, `DRIVER_AUTH` migration applied, shared code in `src/modules/otp/`, decision 150)
-- [ ] Driver `verify-otp` and `register`: need their own docs and owner approval first; driver verify-otp must read only `DRIVER_AUTH` sessions
+- [x] Driver `verify-otp` (`src/modules/driver-auth/`, `api/driver-verify-otp.md` written with the build, decisions 152 to 159): `Driver`, `DriverDevice`, `DriverRefreshToken` models and migration `20261007120000_driver_auth_data_model` applied (backup `C:\Users\HP\Documents\treeps_db-backup-2026-10-07.dump`); shared code check `OtpCodeChecker` also used by rider verify-otp; role `DRIVER`; race test on real Postgres (`driver-verify-otp.pg.spec.ts`, scratch database `treeps_scratch_driver`, `RUN_PG_TESTS=1`); waiting for the owner to commit
+- [x] Driver `register`: not needed, driver verify-otp creates the account (decision 156)
+- [ ] Driver admin visibility (audit, tracking, metrics endpoints): TO DECIDE whether decision 119 (rider auth before admin auth) also covers drivers
+- [ ] Driver audit log lines (`driver.created`, `driver.login.succeeded`, `driver.login.banned`): need a request context (same item as the rider lines)
+- [ ] Driver `refresh` and `logout`: need their own docs and owner approval first
+- [ ] The JWT guard (F4) must check the access token's `role` (RIDER or DRIVER) against the route's domain; today only the claim differs (decision 158)
+- [ ] Driver status rules after login (what DOCUMENTS_PENDING, UNDER_REVIEW, REJECTED may do; whether REJECTED may log in): TO DECIDE
 - [x] Driver `send-otp` (`src/modules/driver-auth/`, `api/driver-send-otp.md`, decision 150): `DRIVER_AUTH` migration applied (backup `C:\Users\HP\Documents\treeps_db-backup-2026-10-06.dump`)
-- [ ] Owner approves `api/driver-send-otp.md` (built first on instruction); driver verify-otp and register need their own docs before any code
+- [ ] Owner approves `api/driver-send-otp.md` and `api/driver-verify-otp.md` (both built first on instruction)
 - [x] `verify-otp` code and tests (`src/modules/rider-auth/`, decision 149)
 - [x] `verify-otp` new-phone fix: marking the code used and storing the registration token hash are one conditional write, so a failure cannot burn the code without a token (2026-10-06; test injects the failure). Login path (ACTIVE rider) still marks the code used before its transaction: combining them is TO DECIDE
 - [ ] Audit log lines (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`, ...): need a request context so a service can log the `requestId`

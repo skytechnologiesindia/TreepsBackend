@@ -1,0 +1,54 @@
+// Driver identity and login only. Profile, documents, vehicle and recharge come in later steps as
+// nullable columns or separate tables. No live-location or online state lives here. A full Aadhaar
+// number is never stored anywhere.
+enum DriverStatus {
+  DOCUMENTS_PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+  BLOCKED
+  DELETED
+}
+
+model Driver {
+  id              String       @id @default(uuid())
+  phoneNumber     String       @unique
+  status          DriverStatus @default(DOCUMENTS_PENDING)
+  isPhoneVerified Boolean      @default(false) // The server sets true after the OTP check
+  lastLoginAt     DateTime?    @db.Timestamptz(3)
+  deletedAt       DateTime?    @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
+
+  devices DriverDevice[]
+}
+
+// One row per driver install. Mirrors Device; separate tables so no foreign key is shared and nullable.
+model DriverDevice {
+  id            String               @id @default(uuid())
+  driverId      String
+  driver        Driver               @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  deviceId      String // The app's install id; id above is the server's uuid
+  platform      DevicePlatform
+  appVersion    String
+  fcmToken      String?
+  lastSeenAt    DateTime             @db.Timestamptz(3)
+  refreshTokens DriverRefreshToken[]
+
+  @@unique([driverId, deviceId])
+}
+
+// Mirrors RefreshToken. Revoked rows are kept: presenting a rotated token again is how reuse is detected.
+model DriverRefreshToken {
+  id        String       @id @default(uuid())
+  tokenHash String       @unique // SHA-256 of the token; the token itself is never stored
+  driverId  String
+  deviceId  String
+  device    DriverDevice @relation(fields: [driverId, deviceId], references: [driverId, deviceId], onDelete: Cascade)
+  expiresAt DateTime     @db.Timestamptz(3)
+  revokedAt DateTime?    @db.Timestamptz(3)
+  createdAt DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([driverId, deviceId])
+}

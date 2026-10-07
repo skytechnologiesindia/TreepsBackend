@@ -99,7 +99,7 @@ All errors use the envelope in `standards/response-format.md`.
 | INTERNAL_ERROR | 500 | A bug or a database failure | null | "Something went wrong. Please try again." | Show retry |
 
 ## Where it lives
-`src/modules/rider-auth/`: `verify-otp.service.ts` (the order of operations above), `dto/verify-otp.dto.ts` and `dto/device.dto.ts` (the shared types `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion`, `OneOf`, `Text`, `Nested`), `access-token.service.ts` (the HS256 signer, secret `JWT_ACCESS_SECRET`), `rider-view.ts` (the `rider` object), and the route in `rider-auth.controller.ts`. The JWT is signed by `src/common/jwt/hs256-jwt.ts`, hand-written with Node's `crypto` and no library (decision 149). The time comes from the injectable clock (`src/common/clock.ts`).
+`src/modules/rider-auth/`: `verify-otp.service.ts` (the order of operations above), `src/modules/otp/dto/verify-otp.dto.ts` and `device.dto.ts` (shared with the driver route; the shared types `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion`, `OneOf`, `Text`, `Nested`), `src/common/jwt/access-token.service.ts` (the HS256 signer, secret `JWT_ACCESS_SECRET`, shared with the driver route), `rider-view.ts` (the `rider` object), and the route in `rider-auth.controller.ts`. The JWT is signed by `src/common/jwt/hs256-jwt.ts`, hand-written with Node's `crypto` and no library (decision 149). The time comes from the injectable clock (`src/common/clock.ts`).
 
 The service reads only sessions with purpose `RIDER_AUTH` (both for finding the newest session and for the 10-per-hour count), so a driver code for the same phone can never log a rider in, and driver attempts do not count toward the rider limit.
 
@@ -143,3 +143,4 @@ The service reads only sessions with purpose `RIDER_AUTH` (both for finding the 
 | 2026-10-06 | Built: route, service, DTOs, HS256 access token (no new dependency), rider view; audit log lines deferred until a request context exists | verify-otp code step (decision 149) |
 | 2026-10-06 | Reads only `RIDER_AUTH` sessions (a driver session is ignored) | Driver send-otp added `DRIVER_AUTH` sessions for the same phones (decision 150) |
 | 2026-10-06 | New-phone path: marking the code used and storing the registration token hash are one conditional write; the Rider lookup now runs before the code is marked used | A crash could burn the code without issuing a token |
+| 2026-10-07 | Steps 2 to 5 and the single-use update moved to the shared `OtpCodeChecker` and `markCodeUsed` (`src/modules/otp/otp-code-checker.ts`); the DTOs moved to `src/modules/otp/dto/`; `AccessTokenService` moved to `src/common/jwt/`. No behavior change; the driver route uses the same code with purpose `DRIVER_AUTH` | Driver verify-otp (decision 155) |

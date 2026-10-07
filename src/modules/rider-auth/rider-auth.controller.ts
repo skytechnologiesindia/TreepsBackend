@@ -4,7 +4,7 @@ import { RateLimit } from '../../common/rate-limit/rate-limit.decorator.js';
 import { RATE_LIMITS } from '../../config/rate-limits.js';
 import { SendOtpDto } from '../otp/dto/send-otp.dto.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
-import { VerifyOtpDto } from './dto/verify-otp.dto.js';
+import { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { VerifyOtpService } from './verify-otp.service.js';
 
 // The /v1 prefix is added by setupApp; never write it here (api-standard.md section 8).
