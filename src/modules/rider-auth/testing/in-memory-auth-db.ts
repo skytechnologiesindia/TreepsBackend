@@ -48,12 +48,14 @@ export class InMemoryAuthDb {
   private nextId = 1;
   // Make one operation throw, for example 'device.upsert' (used to test the transaction).
   failOn: string | null = null;
+  // Make any write fail whose arguments match, for example one that carries registrationTokenHash.
+  failWhen: ((operation: string, args: Row) => boolean) | null = null;
   // How many times each operation was called, for example 'rider.findUnique'.
   calls: Record<string, number> = {};
 
-  private touch(name: string): void {
+  private touch(name: string, args: Row = {}): void {
     this.calls[name] = (this.calls[name] ?? 0) + 1;
-    if (this.failOn === name) throw new Error('injected database failure');
+    if (this.failOn === name || this.failWhen?.(name, args)) throw new Error('injected database failure');
   }
 
   private table(name: string) {
@@ -82,26 +84,26 @@ export class InMemoryAuthDb {
         return { _sum: { attempts: find(where).reduce((sum, row) => sum + (row.attempts ?? 0), 0) } };
       },
       updateMany: async ({ where, data }: { where: Row; data: Row }) => {
-        this.touch(`${name}.updateMany`);
+        this.touch(`${name}.updateMany`, { where, data });
         const found = find(where);
         for (const row of found) applyData(row, data);
         return { count: found.length };
       },
       update: async ({ where, data }: { where: Row; data: Row }) => {
-        this.touch(`${name}.update`);
+        this.touch(`${name}.update`, { where, data });
         const row = find(where)[0];
         if (!row) throw new Error('record to update not found');
         applyData(row, data);
         return row;
       },
       create: async ({ data }: { data: Row }) => {
-        this.touch(`${name}.create`);
+        this.touch(`${name}.create`, { data });
         const row = { ...defaults(), ...data };
         rows().push(row);
         return row;
       },
       upsert: async ({ where, create, update }: { where: Row; create: Row; update: Row }) => {
-        this.touch(`${name}.upsert`);
+        this.touch(`${name}.upsert`, { where, data: create });
         const row = find(where)[0];
         if (row) {
           applyData(row, update);

@@ -83,16 +83,19 @@ export class VerifyOtpService {
     }
     if (!matches) throw new AppException('OTP_INVALID', { field: 'otp' });
 
-    // 6. Single use: only one request can turn verifiedAt from empty to set.
+    // 6. Only now, after the caller proved they hold the phone, does the account state matter.
+    const rider = await this.prisma.rider.findUnique({ where: { phoneNumber } });
+
+    // 7. Single use: only one request can turn verifiedAt from empty to set. For a new phone this is
+    // the same write that stores the registration token hash, so a failure cannot burn the code
+    // without issuing a token.
+    if (!rider) return this.issueRegistrationToken(session!.id, now);
+
     const marked = await this.prisma.otpSession.updateMany({
       where: { id: session!.id, verifiedAt: null },
       data: { verifiedAt: now },
     });
     if (marked.count === 0) throw new AppException('OTP_INVALID', { field: 'otp' });
-
-    // 7. Only now, after the caller proved they hold the phone, does the account state matter.
-    const rider = await this.prisma.rider.findUnique({ where: { phoneNumber } });
-    if (!rider) return this.issueRegistrationToken(session!.id, now);
 
     if (rider.status !== RiderStatus.ACTIVE) {
       await this.prisma.otpSession.update({ where: { id: session!.id }, data: { consumedAt: now } });
@@ -108,15 +111,19 @@ export class VerifyOtpService {
   }
 
   // A phone with no rider gets a one-time registration token. Only its SHA-256 hash is stored.
+  // One conditional write marks the code used and stores the hash together (a single statement is
+  // atomic, so no transaction is needed). No row changed: another request used the code first.
   private async issueRegistrationToken(sessionId: string, now: Date): Promise<NewRiderResult> {
     const registrationToken = newOpaqueToken();
-    await this.prisma.otpSession.update({
-      where: { id: sessionId },
+    const issued = await this.prisma.otpSession.updateMany({
+      where: { id: sessionId, verifiedAt: null },
       data: {
+        verifiedAt: now,
         registrationTokenHash: sha256Hex(registrationToken),
         registrationExpiresAt: new Date(now.getTime() + REGISTRATION_TOKEN_TTL_SECONDS * 1000),
       },
     });
+    if (issued.count === 0) throw new AppException('OTP_INVALID', { field: 'otp' });
     return {
       isNewRider: true,
       registrationToken,

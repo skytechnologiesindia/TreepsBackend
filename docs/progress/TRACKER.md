@@ -51,6 +51,7 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [x] Driver `send-otp` (`src/modules/driver-auth/`, `api/driver-send-otp.md`, decision 150): `DRIVER_AUTH` migration applied (backup `C:\Users\HP\Documents\treeps_db-backup-2026-10-06.dump`)
 - [ ] Owner approves `api/driver-send-otp.md` (built first on instruction); driver verify-otp and register need their own docs before any code
 - [x] `verify-otp` code and tests (`src/modules/rider-auth/`, decision 149)
+- [x] `verify-otp` new-phone fix: marking the code used and storing the registration token hash are one conditional write, so a failure cannot burn the code without a token (2026-10-06; test injects the failure). Login path (ACTIVE rider) still marks the code used before its transaction: combining them is TO DECIDE
 - [ ] Audit log lines (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`, ...): need a request context so a service can log the `requestId`
 - [ ] `register` code and tests (including the race tests)
 - [ ] `refresh` code and tests (rotation, reuse detection)

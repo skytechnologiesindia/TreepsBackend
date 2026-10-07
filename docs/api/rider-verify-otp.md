@@ -59,9 +59,10 @@ Never in the reply: the provider session id, `attempts`, any token hash, the rid
 5. Ask the OTP provider to verify (5 s timeout, no retry, never inside a DB transaction).
    - Provider failure: give the attempt back, reply `OTP_PROVIDER_ERROR`.
    - `MISMATCH`: keep the attempt, reply `OTP_INVALID`. After the 5th wrong code the next call gets `OTP_ATTEMPTS_EXCEEDED`.
-6. Mark the code used with a conditional update (`verifiedAt` null becomes now). If it matches no row, another request used it first: `OTP_INVALID`. This is the **single-use** step.
-7. Look up the Rider by phone. Only now, after the caller proved they hold the phone, does the account state matter:
-   - **No rider:** create a registration token (32 random bytes from `crypto.randomBytes`, base64url), store only its SHA-256 hash in `registrationTokenHash` and `registrationExpiresAt` = now + 10 min on this session, reply shape B. `consumedAt` stays null.
+6. Look up the Rider by phone. Only now, after the caller proved they hold the phone, does the account state matter.
+7. Mark the code used with a conditional update (`verifiedAt` null becomes now). If it matches no row, another request used it first: `OTP_INVALID`. This is the **single-use** step. What else happens depends on the account:
+   - **No rider:** create a registration token (32 random bytes from `crypto.randomBytes`, base64url). **One conditional write** (`verifiedAt` null becomes now, `registrationTokenHash` = SHA-256 of the token, `registrationExpiresAt` = now + 10 min) marks the code used and stores the hash together. One statement is atomic, so no transaction is needed, and a failure cannot burn the code without issuing a token. Reply shape B. `consumedAt` stays null.
+   - **Everyone else:** a separate conditional update marks `verifiedAt` first, then:
    - **ACTIVE:** one database transaction: upsert the `Device` (create it, or update `appVersion`, `platform`, `lastSeenAt`, and `fcmToken` if sent); revoke the device's earlier unrevoked `RefreshToken` rows; create the new `RefreshToken` (SHA-256 hash only); set `Rider.lastLoginAt`; set the session's `consumedAt`. Then sign the access token and reply shape A.
    - **SUSPENDED or BLOCKED:** set `consumedAt`, reply `ACCOUNT_BANNED`. No tokens.
    - **DELETED:** set `consumedAt`, reply `ACCOUNT_BANNED`, no tokens. A DELETED row keeps owning its phone (plain unique, decision 128), so the phone cannot register again. Revisit when a delete or restore flow is built.
@@ -77,7 +78,8 @@ OTP numbers and provider timeout as in `rider-send-otp.md`. Registration-token l
 - Before: one open `OtpSession`. After (login): `verifiedAt` and `consumedAt` set, one `Device` row (new or updated), one new `RefreshToken`, the old one for that device revoked, `Rider.lastLoginAt` updated. After (new rider): `verifiedAt` set, `registrationTokenHash` and `registrationExpiresAt` set, no Rider yet.
 - Idempotency: natural, not replayable. The code is single use, so a repeated call gets `OTP_INVALID`. If the reply is lost, the rider asks for a new code. No `Idempotency-Key` header in the MVP.
 - Concurrency: the conditional attempt update and the conditional `verifiedAt` update make exactly one concurrent request win. Two devices logging in at once get separate `Device` rows (unique `(riderId, deviceId)`).
-- If the transaction in step 7 fails after step 6, the code is already used and the rider asks for a new one. Accepted: marking and issuing are not combined because the provider call cannot be inside the transaction.
+- **New phone:** marking the code used and storing the registration token hash are one write (step 7). If it fails, the code is not used and the rider can try the same code again (the attempt stays counted).
+- **ACTIVE rider (login):** if the transaction in step 7 fails after the code was marked used, the code is already used and the rider asks for a new one. Accepted: marking and issuing are not combined here. Combining them is TO DECIDE.
 
 ## Data stored
 `OtpSession` (updated), `Device`, `RefreshToken` (hash only), `Rider.lastLoginAt`. The registration token is stored only as a hash. The OTP and the provider session id are never in a reply or log. No limit on devices per rider in the MVP (decision 144).
@@ -127,6 +129,7 @@ The service reads only sessions with purpose `RIDER_AUTH` (both for finding the 
 - Device rules: a second login from the same device revokes the first token and leaves one unrevoked token; a login from a new device leaves both devices' tokens valid.
 - Upstream failure: provider timeout, error and unreadable reply each give `OTP_PROVIDER_ERROR`, the attempt is given back, nothing is issued, and the provider is called exactly once.
 - Transaction failure: if the Device insert fails, no RefreshToken or `consumedAt` remains.
+- New-phone write failure: if the write that stores the registration token hash fails, `verifiedAt` stays empty and the same code works on the next try.
 - Rate limit: the 11th verify attempt for one phone in an hour is `RATE_LIMITED` and calls the provider zero times.
 - Secrets: no OTP, session id, token hash or provider URL in any reply or log line.
 
@@ -139,3 +142,4 @@ The service reads only sessions with purpose `RIDER_AUTH` (both for finding the 
 | 2026-10-05 | `appVersion` rule; devices per rider, ban wording and token window settled (decision 144) | Owner decisions 141 to 145 |
 | 2026-10-06 | Built: route, service, DTOs, HS256 access token (no new dependency), rider view; audit log lines deferred until a request context exists | verify-otp code step (decision 149) |
 | 2026-10-06 | Reads only `RIDER_AUTH` sessions (a driver session is ignored) | Driver send-otp added `DRIVER_AUTH` sessions for the same phones (decision 150) |
+| 2026-10-06 | New-phone path: marking the code used and storing the registration token hash are one conditional write; the Rider lookup now runs before the code is marked used | A crash could burn the code without issuing a token |

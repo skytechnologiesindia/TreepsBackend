@@ -212,6 +212,25 @@ describe('VerifyOtpService: a phone with no rider', () => {
     expect(JSON.stringify(result)).not.toContain('SECRET');
   });
 
+  it('if saving the token fails, the code is NOT burned: it is still usable on the next try', async () => {
+    const ctx = setup();
+    const session = ctx.session();
+    // Fail whichever write stores the registration token hash. Marking the code used must not
+    // happen in a separate earlier write, or this failure would burn the code.
+    ctx.db.failWhen = (_operation, args) => args.data?.registrationTokenHash !== undefined;
+    await expect(ctx.service.verifyOtp(dto())).rejects.toThrow('injected database failure');
+    expect(session.verifiedAt).toBeNull();
+    expect(session.registrationTokenHash).toBeNull();
+    expect(session.registrationExpiresAt).toBeNull();
+
+    ctx.db.failWhen = null;
+    const retry = await ctx.service.verifyOtp(dto());
+    expect(retry.isNewRider).toBe(true);
+    if (!retry.isNewRider) throw new Error('unreachable');
+    expect(session.verifiedAt.getTime()).toBe(T0);
+    expect(session.registrationTokenHash).toBe(sha256Hex(retry.registrationToken));
+  });
+
   it('each call gets a different token', async () => {
     const ctx = setup();
     ctx.session();
