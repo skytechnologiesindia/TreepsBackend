@@ -18,6 +18,7 @@ export interface ValidatedEnv {
   ALLOW_FAKE_OTP?: string; // only read, and only required, when OTP_PROVIDER is fake
   FAKE_OTP_CODE?: string; // only when OTP_PROVIDER is fake
   TWOFACTOR_API_KEY?: string; // only when OTP_PROVIDER is twofactor
+  TWOFACTOR_TEMPLATE?: string; // only when OTP_PROVIDER is twofactor; optional, default OTP1
   TRUST_PROXY_HOPS: number;
   JWT_ACCESS_SECRET: string;
 }
@@ -114,6 +115,12 @@ function checkTwoFactorApiKey(raw: unknown): ReasonCode | undefined {
   return undefined;
 }
 
+// Optional. The name of an SMS template made in the 2Factor dashboard; it goes into the URL path.
+function checkTwoFactorTemplate(raw: unknown): ReasonCode | undefined {
+  if (raw === undefined) return undefined;
+  return typeof raw === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(raw) ? undefined : 'INVALID_FORMAT';
+}
+
 function checkTrustProxyHops(raw: unknown): { hops?: number; reason?: ReasonCode } {
   if (raw === undefined) return { hops: DEFAULT_TRUST_PROXY_HOPS };
   if (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw)) {
@@ -152,6 +159,8 @@ export function validateEnv(
   if (config.OTP_PROVIDER === 'twofactor') {
     const apiKey = checkTwoFactorApiKey(config.TWOFACTOR_API_KEY);
     if (apiKey) problems.push({ variable: 'TWOFACTOR_API_KEY', reason: apiKey });
+    const template = checkTwoFactorTemplate(config.TWOFACTOR_TEMPLATE);
+    if (template) problems.push({ variable: 'TWOFACTOR_TEMPLATE', reason: template });
   }
 
   const hops = checkTrustProxyHops(config.TRUST_PROXY_HOPS);

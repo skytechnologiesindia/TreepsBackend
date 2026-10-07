@@ -98,6 +98,7 @@ Checked when the server starts, before it accepts requests. Failure stops the pr
 | ALLOW_FAKE_OTP | Optional, no default, read only when `OTP_PROVIDER` is `fake`. With `fake` it must be exactly `true`: no value or an empty value is REQUIRED, any other value is NOT_ALLOWED, and either stops startup. | REQUIRED, NOT_ALLOWED |
 | FAKE_OTP_CODE | Required only when `OTP_PROVIDER` is `fake`, no default. Exactly 6 ASCII digits. Never printed. | REQUIRED, INVALID_FORMAT |
 | TWOFACTOR_API_KEY | Required only when `OTP_PROVIDER` is `twofactor`, no default. Non-empty, no control character, no leading or trailing space. Never printed. | REQUIRED, INVALID_FORMAT |
+| TWOFACTOR_TEMPLATE | Optional, default `OTP1`; read only when `OTP_PROVIDER` is `twofactor`. 1 to 50 characters from letters, digits, `_` and `-`. | INVALID_FORMAT |
 | TRUST_PROXY_HOPS | Optional, default 0 (untrusted: the connection's own address is the client IP and forwarded headers are ignored). Plain decimal digits with no leading zero except `0` itself, 0 to 10 (the cap of 10 is a sanity limit chosen here). Converted to a number explicitly. | INVALID_FORMAT, OUT_OF_RANGE |
 | JWT_ACCESS_SECRET | Required, no default. At least 32 characters; shorter stops startup. Never printed. | REQUIRED, TOO_SHORT |
 

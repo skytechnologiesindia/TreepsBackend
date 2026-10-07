@@ -254,6 +254,21 @@ describe('validateEnv', () => {
     });
   });
 
+  describe('TWOFACTOR_TEMPLATE (optional, read only when OTP_PROVIDER is twofactor)', () => {
+    it('is optional', () => {
+      expect(problemsOf({ ...VALID, TWOFACTOR_TEMPLATE: undefined })).toEqual([]);
+      expect(problemsOf({ ...VALID, TWOFACTOR_TEMPLATE: 'OTP_2-b' })).toEqual([]);
+    });
+
+    it.each([[''], ['a b'], ['a/b'], ['a?b'], ['x'.repeat(51)], [42]])('%j is INVALID_FORMAT', (value) => {
+      expect(reasonsFor('TWOFACTOR_TEMPLATE', { ...VALID, TWOFACTOR_TEMPLATE: value })).toEqual(['INVALID_FORMAT']);
+    });
+
+    it('is not read for fake', () => {
+      expect(problemsOf({ ...FAKE, TWOFACTOR_TEMPLATE: 'a/b' })).toEqual([]);
+    });
+  });
+
   describe('TRUST_PROXY_HOPS', () => {
     it('defaults to 0 (untrusted) as a number when it is not set', () => {
       expect(validateEnv(VALID).TRUST_PROXY_HOPS).toBe(0);

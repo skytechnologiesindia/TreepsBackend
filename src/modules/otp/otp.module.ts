@@ -16,7 +16,11 @@ import { SendOtpService } from './send-otp.service.js';
       provide: OTP_PROVIDER,
       inject: [ConfigService],
       useFactory: (config: ConfigService<ValidatedEnv, true>) =>
-        createOtpProvider(config.get('OTP_PROVIDER', { infer: true }), config.get('FAKE_OTP_CODE', { infer: true })),
+        createOtpProvider(config.get('OTP_PROVIDER', { infer: true }), {
+          fakeCode: config.get('FAKE_OTP_CODE', { infer: true }),
+          twoFactorApiKey: config.get('TWOFACTOR_API_KEY', { infer: true }),
+          twoFactorTemplate: config.get('TWOFACTOR_TEMPLATE', { infer: true }),
+        }),
     },
     SendOtpService,
   ],

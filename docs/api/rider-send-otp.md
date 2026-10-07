@@ -72,15 +72,20 @@ The code never calls 2Factor directly. It depends on an `OtpProvider` interface 
 | `verify(providerSessionId, otp)` | Asks the provider if the code matches | `true` (match) or `false` (no match); a provider failure is a thrown error |
 
 Two implementations:
-- **TwoFactorOtpProvider (real):** 5 second timeout, **no automatic retry** (a retry can send a second SMS), any failure (timeout, refusal, unreadable reply) becomes `OTP_PROVIDER_ERROR` (503). Its exact request format, session-id field and error shapes: confirmed in M0 (not guessed in these docs).
-- **Built so far (send-otp step):** the `OtpProvider` interface, `FakeOtpProvider`, and the choice by `OTP_PROVIDER` at startup, all in `src/modules/otp/provider/`, shared with the driver route. With `OTP_PROVIDER=twofactor` the app refuses to start with the fixed message `OTP_PROVIDER=twofactor: twofactor client not built yet (blocked on M0). ...` (an `OtpProviderNotBuiltError`, which the startup printer may show because it holds a key name and constants only). It never falls back to the fake.
+- **TwoFactorOtpProvider (real, built 2026-10-07, `src/modules/otp/provider/twofactor-otp.provider.ts`):** 5 second timeout, **no automatic retry** (a retry can send a second SMS), any failure (network error, timeout, a Status that is not `Success`, unreadable JSON, a phone that is not `+91` and 10 digits) becomes an `OtpProviderError`, which the callers turn into `OTP_PROVIDER_ERROR` (503).
+  - `send`: `GET https://2factor.in/API/V1/{API_KEY}/SMS/91XXXXXXXXXX/AUTOGEN/{TEMPLATE}`. The number goes in as `91` plus the 10 digits (the `+` is dropped). 2Factor makes the code; we never see or store it. `Details` in the reply is the session id and is stored as `providerSessionId`.
+  - `verify`: `GET https://2factor.in/API/V1/{API_KEY}/SMS/VERIFY/{session_id}/{otp}`. `Status: Success` with `Details: OTP Matched` is a match. `Status: Error` with `Details: OTP Mismatch` or `OTP Expired` is `false` (the existing wrong-code result, `OTP_INVALID`; the provider does not tell us apart from our own 5 minute expiry, which is checked first). Any other reply is a provider error, not a wrong code.
+  - **The API key is part of the URL, so it is never logged or put in an error.** The provider throws a fixed-text error and drops the original network error. Its only log line is `2Factor {send|verify} failed: {REASON}` with a fixed reason word. Redirects are refused. A test checks the key is in no error, stack or log output.
+  - Reply shapes above are from the 2Factor public docs, not yet seen against the live service: confirm with one real SMS before launch (TO DECIDE until then).
+  - Config: `TWOFACTOR_API_KEY` (required), `TWOFACTOR_TEMPLATE` (optional, default `OTP1`; letters, digits, `_`, `-`, up to 50).
+- **Built so far:** the `OtpProvider` interface, `FakeOtpProvider`, `TwoFactorOtpProvider`, and the choice by `OTP_PROVIDER` at startup, all in `src/modules/otp/provider/`, shared with the driver route. It never falls back to the fake.
 - **FakeOtpProvider (dev and test only):** makes no network call. `send` returns a made-up session id; `verify` returns `MATCH` only for one fixed code taken from config (no default value).
 
 Startup rules (final key names, decision 139: `OTP_PROVIDER`, `ALLOW_FAKE_OTP`, `FAKE_OTP_CODE`, `TWOFACTOR_API_KEY`, `TRUST_PROXY_HOPS`; the exact rules are in `input-validation.md` section 6, and each key gets a line in `.env.example` in the code commit):
 - `OTP_PROVIDER` is required, with no default, and is `twofactor` or `fake`.
 - **The fake provider needs two deliberate settings: `OTP_PROVIDER=fake` AND `ALLOW_FAKE_OTP=true`.** `ALLOW_FAKE_OTP` has no default and is read only when the provider is `fake`; with `OTP_PROVIDER=fake` and any other value or no value, the app refuses to start.
 - **The app refuses to start if the fake provider is selected and `NODE_ENV` is `production`**, even with `ALLOW_FAKE_OTP=true` (reason code `NOT_ALLOWED`, the variable named, no value printed).
-- `TWOFACTOR_API_KEY` is required when `twofactor` is selected; `FAKE_OTP_CODE` (6 digits) is required when `fake` is selected.
+- `TWOFACTOR_API_KEY` is required when `twofactor` is selected (`TWOFACTOR_TEMPLATE` is optional, default `OTP1`); `FAKE_OTP_CODE` (6 digits) is required when `fake` is selected.
 - `TRUST_PROXY_HOPS`: see Rate limit. It is optional, a whole number, and defaults to 0.
 - Residual risk: the double gate stops an accidental fake provider, but a deployed `development` server with both variables set would still accept the fixed code, and anyone who knows it could log in as any phone. Keep both variables out of every deployed environment file.
 
@@ -157,3 +162,4 @@ All errors use the envelope in `standards/response-format.md`. Messages come onl
 | 2026-10-05 | Built: route, service, `OtpProvider` interface, `FakeOtpProvider`, startup refusal for `twofactor` (blocked on M0); `verify` returns true or false | send-otp code step |
 | 2026-10-06 | Shared code moved to `src/modules/otp/` and made purpose-aware (per phone and per purpose limits); rider behavior unchanged; `DRIVER_AUTH` exists for the driver route | Driver send-otp (decision 150) |
 | 2026-10-06 | Send logic moved to `src/modules/otp/` and takes a purpose; counts per phone and per purpose; rider behavior unchanged; driver route in `driver-send-otp.md` | Driver send-otp (decision 150) |
+| 2026-10-07 | Built `TwoFactorOtpProvider` (request and reply handling, key redaction, `TWOFACTOR_TEMPLATE`); the "not built yet" startup refusal no longer applies | real 2Factor provider step |

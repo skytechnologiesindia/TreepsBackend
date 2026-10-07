@@ -1,6 +1,6 @@
-import { OTP_PROVIDER_NOT_BUILT, OtpProviderNotBuiltError } from '../../../config/otp-provider-not-built.error.js';
 import { FAKE_SESSION_PREFIX, FakeOtpProvider } from './fake-otp.provider.js';
 import { createOtpProvider } from './otp-provider.factory.js';
+import { TwoFactorOtpProvider } from './twofactor-otp.provider.js';
 
 describe('FakeOtpProvider', () => {
   const provider = new FakeOtpProvider('123456');
@@ -22,15 +22,16 @@ describe('FakeOtpProvider', () => {
 
 describe('createOtpProvider', () => {
   it('fake gives a FakeOtpProvider that uses FAKE_OTP_CODE', async () => {
-    const provider = createOtpProvider('fake', '246810');
+    const provider = createOtpProvider('fake', { fakeCode: '246810' });
     expect(provider).toBeInstanceOf(FakeOtpProvider);
     const { providerSessionId } = await provider.send('+919477172214');
     expect(await provider.verify(providerSessionId, '246810')).toBe(true);
   });
 
-  it('twofactor fails with the clear "not built yet" error, and never falls back to the fake', () => {
-    expect(() => createOtpProvider('twofactor', '123456')).toThrow(OtpProviderNotBuiltError);
-    expect(() => createOtpProvider('twofactor', undefined)).toThrow(/twofactor client not built yet \(blocked on M0\)/);
-    expect(OTP_PROVIDER_NOT_BUILT).toContain('twofactor client not built yet (blocked on M0)');
+  it('twofactor gives a TwoFactorOtpProvider, and never falls back to the fake', () => {
+    expect(createOtpProvider('twofactor', { twoFactorApiKey: 'k', fakeCode: '123456' })).toBeInstanceOf(
+      TwoFactorOtpProvider,
+    );
+    expect(() => createOtpProvider('twofactor', { fakeCode: '123456' })).toThrow(/TWOFACTOR_API_KEY is missing/);
   });
 });
