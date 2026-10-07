@@ -32,3 +32,6 @@ Thumbs.db
 /.windsurf/
 /.claude/skills/
 /.claude/settings.local.json
+
+# Claude Code project folder (local tooling, not part of the app)
+/.claude/
