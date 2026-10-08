@@ -193,52 +193,137 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
 });
 
 describe('VerifyOtpService: a phone with no rider', () => {
-  it('replies isNewRider with a one-time registration token and stores only its hash', async () => {
+  it('creates a PROFILE_PENDING rider, device and hashed refresh token, and replies like a login', async () => {
     const ctx = setup();
     const session = ctx.session();
     const result = await ctx.service.verifyOtp(dto());
+
     expect(result.isNewRider).toBe(true);
-    if (!result.isNewRider) throw new Error('unreachable');
-    expect(result.registrationToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(result.registrationTokenExpiresInSeconds).toBe(600);
-    expect(session.registrationTokenHash).toBe(sha256Hex(result.registrationToken));
-    expect(session.registrationTokenHash).not.toBe(result.registrationToken);
-    expect(session.registrationExpiresAt.getTime()).toBe(T0 + 10 * MINUTE);
+    expect(Object.keys(result).sort()).toEqual(['isNewRider', 'rider', 'tokens']); // same keys as a login; no registrationToken
+    expect(result.rider).toMatchObject({
+      fullName: null,
+      phoneNumber: PHONE,
+      email: null,
+      registeredCity: null,
+      registeredState: null,
+      status: 'PROFILE_PENDING',
+      isPhoneVerified: true,
+      isEmailVerified: false,
+      isProfileComplete: false,
+      createdAt: new Date(T0).toISOString(),
+    });
+    expect(result.tokens.accessTokenExpiresInSeconds).toBe(900);
+    expect(result.tokens.refreshTokenExpiresInSeconds).toBe(2_592_000);
+    expect(result.tokens.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    expect(ctx.db.tables.rider).toHaveLength(1);
+    expect(ctx.db.tables.rider[0]).toMatchObject({ phoneNumber: PHONE, fullName: null, email: null, status: 'PROFILE_PENDING', isPhoneVerified: true, isProfileComplete: false });
+    expect(ctx.db.tables.rider[0].lastLoginAt.getTime()).toBe(T0);
+    expect(ctx.db.tables.device).toHaveLength(1);
+    expect(ctx.db.tables.device[0]).toMatchObject({ riderId: result.rider.id, deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2', fcmToken: null });
+    expect(ctx.db.tables.refreshToken).toHaveLength(1);
+    const stored = ctx.db.tables.refreshToken[0];
+    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.refreshToken));
+    expect(JSON.stringify(ctx.db.tables.refreshToken)).not.toContain(result.tokens.refreshToken);
+    expect(stored.expiresAt.getTime()).toBe(T0 + 2_592_000 * SECOND);
+    // the code is used and the session finished; no registration token is stored
     expect(session.verifiedAt.getTime()).toBe(T0);
-    expect(session.consumedAt).toBeNull();
+    expect(session.consumedAt.getTime()).toBe(T0);
+    expect(session.registrationTokenHash).toBeNull();
+    expect(session.registrationExpiresAt).toBeNull();
+  });
+
+  it('issues a RIDER access token for the new rider', async () => {
+    const ctx = setup();
+    ctx.session();
+    const result = await ctx.service.verifyOtp(dto());
+    const claims = verifyHs256Jwt(result.tokens.accessToken, SECRET, T0 / 1000);
+    expect(claims).toEqual({ iss: 'treeps', sub: result.rider.id, role: 'RIDER', deviceId: 'device-1', iat: T0 / 1000, exp: T0 / 1000 + 900 });
+  });
+
+  it('stores fcmToken when the app sends one', async () => {
+    const ctx = setup();
+    ctx.session();
+    await ctx.service.verifyOtp(dto({}, { fcmToken: 'token-one' }));
+    expect(ctx.db.tables.device[0].fcmToken).toBe('token-one');
+  });
+
+  it('never returns the provider session id, attempts, token hashes, deletedAt or lastLoginAt', async () => {
+    const ctx = setup();
+    ctx.session({ providerSessionId: 'SECRET-SESSION' });
+    const text = JSON.stringify(await ctx.service.verifyOtp(dto()));
+    for (const forbidden of ['SECRET-SESSION', 'attempts', 'tokenHash', 'deletedAt', 'lastLoginAt', 'registrationToken', 'verifiedAt']) {
+      expect(text).not.toContain(forbidden);
+    }
+  });
+
+  // A failure at each step of the transaction leaves nothing, and the same code works on the next try.
+  it.each([
+    ['marking the code used', 'otpSession.updateMany'],
+    ['creating the rider', 'rider.create'],
+    ['creating the device', 'device.create'],
+    ['creating the refresh token', 'refreshToken.create'],
+  ])('a failure while %s leaves nothing behind and the code is still usable', async (_step, operation) => {
+    const ctx = setup();
+    ctx.session();
+    const session = () => ctx.db.tables.otpSession[0]; // a rollback swaps the rows, so read it afresh
+    // The shared checker also calls otpSession.updateMany (it reserves the attempt), so for that
+    // step fail only the write that marks the code used.
+    ctx.db.failWhen = (name, args) => (operation === 'otpSession.updateMany' ? name === operation && args.data?.verifiedAt !== undefined : name === operation);
+    await expect(ctx.service.verifyOtp(dto())).rejects.toThrow('injected database failure');
     expect(ctx.db.tables.rider).toHaveLength(0);
     expect(ctx.db.tables.device).toHaveLength(0);
     expect(ctx.db.tables.refreshToken).toHaveLength(0);
-    expect(JSON.stringify(result)).not.toContain('SECRET');
-  });
-
-  it('if saving the token fails, the code is NOT burned: it is still usable on the next try', async () => {
-    const ctx = setup();
-    const session = ctx.session();
-    // Fail whichever write stores the registration token hash. Marking the code used must not
-    // happen in a separate earlier write, or this failure would burn the code.
-    ctx.db.failWhen = (_operation, args) => args.data?.registrationTokenHash !== undefined;
-    await expect(ctx.service.verifyOtp(dto())).rejects.toThrow('injected database failure');
-    expect(session.verifiedAt).toBeNull();
-    expect(session.registrationTokenHash).toBeNull();
-    expect(session.registrationExpiresAt).toBeNull();
+    expect(session().verifiedAt).toBeNull();
+    expect(session().consumedAt).toBeNull();
 
     ctx.db.failWhen = null;
     const retry = await ctx.service.verifyOtp(dto());
     expect(retry.isNewRider).toBe(true);
-    if (!retry.isNewRider) throw new Error('unreachable');
-    expect(session.verifiedAt.getTime()).toBe(T0);
-    expect(session.registrationTokenHash).toBe(sha256Hex(retry.registrationToken));
+    expect(ctx.db.tables.rider).toHaveLength(1);
+    expect(session().verifiedAt.getTime()).toBe(T0);
   });
 
-  it('each call gets a different token', async () => {
+  it('a unique violation on the phone (another session created the rider first) is CONFLICT and the code is not used', async () => {
     const ctx = setup();
     ctx.session();
-    ctx.session({ phoneNumber: '+919477172215' });
-    const a = await ctx.service.verifyOtp(dto());
-    const b = await ctx.service.verifyOtp(dto({ phoneNumber: '+919477172215' }));
-    if (!a.isNewRider || !b.isNewRider) throw new Error('unreachable');
-    expect(a.registrationToken).not.toBe(b.registrationToken);
+    // The lookup said "no rider", then a parallel request created one before this transaction ran.
+    const original = ctx.db.rider.findUnique;
+    ctx.db.rider.findUnique = async (args: any) => {
+      const found = await original(args);
+      ctx.db.addRider({ phoneNumber: PHONE, status: 'PROFILE_PENDING', fullName: null });
+      return found;
+    };
+    const error = await errorOf(ctx.service.verifyOtp(dto()));
+    expect(error?.code).toBe('CONFLICT');
+    expect(error?.getStatus()).toBe(409);
+    expect(ctx.db.tables.device).toHaveLength(0);
+    expect(ctx.db.tables.refreshToken).toHaveLength(0);
+    expect(ctx.db.tables.otpSession[0].verifiedAt).toBeNull();
+  });
+
+  it('a repeat verify with the same code is OTP_INVALID and creates no second rider', async () => {
+    const ctx = setup();
+    ctx.session();
+    await ctx.service.verifyOtp(dto());
+    expect(await codeOf(ctx.service.verifyOtp(dto()))).toBe('OTP_INVALID');
+    expect(ctx.db.tables.rider).toHaveLength(1);
+  });
+});
+
+describe('VerifyOtpService: a returning PROFILE_PENDING rider', () => {
+  it('logs in like any rider: isNewRider false, same rider, new tokens, no second rider', async () => {
+    const ctx = setup();
+    ctx.session();
+    const first = await ctx.service.verifyOtp(dto());
+    ctx.advance(1000);
+    ctx.session();
+    const second = await ctx.service.verifyOtp(dto());
+    expect(second.isNewRider).toBe(false);
+    expect(second.rider.id).toBe(first.rider.id);
+    expect(second.rider.status).toBe('PROFILE_PENDING');
+    expect(second.tokens.refreshToken).not.toBe(first.tokens.refreshToken);
+    expect(ctx.db.tables.rider).toHaveLength(1);
   });
 });
 

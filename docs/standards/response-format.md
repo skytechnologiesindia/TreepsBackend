@@ -99,6 +99,7 @@ Messages for the estimate codes are copied from `docs/api/estimate.md`, where th
 | OTP_EXPIRED | 422 | "That code has expired. Please ask for a new one." (proposed) | otp |
 | OTP_ATTEMPTS_EXCEEDED | 429 | "Too many wrong codes. Please ask for a new code." (proposed) | otp |
 | OTP_PROVIDER_ERROR | 503 | "We couldn't reach the code service. Please try again." (proposed) | null |
+| REGISTRATION_TOKEN_INVALID | 422 | "Your sign-up session has expired. Please verify your phone again." (proposed) | registrationToken |
 | EMAIL_IN_USE | 409 | "This email is already in use." (proposed) | email |
 
 Where the registry lives in code: `src/common/errors/error-registry.ts`. Controllers throw a single `AppException` (`src/common/errors/app.exception.ts`) with a code and optional `{ field, details }`. Status and message come only from the registry; `details` is accepted only with INVALID_INPUT and the constructor rejects it on any other code.
@@ -144,3 +145,4 @@ F3.2 is done. The request id middleware, the error registry with `AppException`,
 | 2026-10-05 | Dropped ACCOUNT_EXISTS; proposed REGISTRATION_TOKEN_INVALID (422) and EMAIL_IN_USE (409); the registry would have 19 codes | Unified rider phone-OTP flow (docs only, not in code yet) |
 | 2026-10-05 | 503 confirmed for OTP_PROVIDER_ERROR and added to the allowed statuses (section 4) | Owner decision 130 |
 | 2026-10-07 | Removed REGISTRATION_TOKEN_INVALID from the registry table (no route uses it after the redesign; the registry would have 18 codes; the code row and its spec still exist until the code step) | Owner instruction of 2026-10-07 (decision 162) |
+| 2026-10-08 | Put REGISTRATION_TOKEN_INVALID back in the registry table until the old register route is replaced (the code still throws it and the registry spec compares code and doc); it is removed with that step (decision 162) | verify-otp redesign step |

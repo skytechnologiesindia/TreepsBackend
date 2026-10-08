@@ -78,6 +78,7 @@ export class InMemoryAuthDb {
       if (name === 'refreshToken' || name === 'driverRefreshToken') Object.assign(base, { revokedAt: null, createdAt: NOW() });
       if (name === 'device' || name === 'driverDevice') Object.assign(base, { fcmToken: null });
       if (name === 'driver') Object.assign(base, { deletedAt: null });
+      if (name === 'rider') Object.assign(base, { fullName: null, email: null, gender: null, dateOfBirth: null, profilePicture: null, registeredCity: null, registeredState: null, isEmailVerified: false, isProfileComplete: false, lastLoginAt: null, deletedAt: null, createdAt: NOW(), updatedAt: NOW() });
       return base;
     };
     const find = (where: Row) => rows().filter((row) => matches(row, flattenWhere(where)));

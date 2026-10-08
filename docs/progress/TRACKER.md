@@ -74,9 +74,9 @@ Admin visibility (CLAUDE.md): `GET /v1/admin/riders`, `GET /v1/admin/riders/:id`
 ### Redesign 2026-10-07: verify once, finish the profile later (decisions 162 to 165)
 Docs updated, **code not changed, owner approval pending**: `api/rider-verify-otp.md`, `rider-register.md` (now authenticated complete-profile), new `rider-me.md` and `driver-me.md`, `standards/response-format.md`, `rider-send-otp.md`.
 - [ ] Owner approves the redesign docs and answers the TO DECIDE items (route rename, 200 vs 201, email required, `PROFILE_PENDING` as column default, drop the two `OtpSession` columns, `/me` banned behaviour, guard global vs per route, abandoned-row cleanup)
-- [ ] Migration (backup first, never `migrate reset` or `db push`): `RiderStatus` + `PROFILE_PENDING`, `Rider.fullName` nullable; later maybe drop `OtpSession.registrationTokenHash` and `registrationExpiresAt`
+- [x] Migration `20261007160000_rider_profile_pending` (`RiderStatus` + `PROFILE_PENDING`, `Rider.fullName` nullable), generated with `prisma migrate diff`, tested on a scratch database, applied to `treeps_db` on 2026-10-08 (backup `treeps_db-backup-2026-10-07-rider-verify.dump`). Later maybe drop `OtpSession.registrationTokenHash` and `registrationExpiresAt` (TO DECIDE)
 - [ ] JWT guard (`verifyHs256Jwt` exists), `@Roles`, `@CurrentUser`, and a decision on `@Public()` for the open routes
-- [ ] Rider `verify-otp.service.ts`: create Rider + Device + RefreshToken in one transaction for a new phone; let `PROFILE_PENDING` log in; `CONFLICT` on a phone race; remove the registration-token branch
+- [x] Rider `verify-otp.service.ts` (2026-10-08): creates Rider + Device + RefreshToken in one transaction for a new phone, `PROFILE_PENDING` logs in, `CONFLICT` on a phone race, registration-token branch removed; tests incl. real-Postgres race (`verify-otp.pg.spec.ts`). The old register route and its tests are untouched; its end-to-end test is skipped until register is replaced
 - [ ] Rider `register.service.ts`, `register.dto.ts`, controller: complete-profile (conditional update, 200, `{ rider }`); `rider-view.ts` with nullable `fullName`
 - [ ] `GET /v1/rider/me` and `GET /v1/driver/me` (controllers, services)
 - [ ] Error registry: remove `REGISTRATION_TOKEN_INVALID` and its spec rows (19 becomes 18); `OpaqueToken` stays (refresh token)

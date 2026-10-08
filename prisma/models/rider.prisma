@@ -1,4 +1,5 @@
 enum RiderStatus {
+  PROFILE_PENDING // Created by verify-otp; the profile is not filled in yet
   ACTIVE
   SUSPENDED
   BLOCKED
@@ -14,7 +15,7 @@ enum Gender {
 model Rider {
   id                String      @id @default(uuid())
   phoneNumber       String      @unique
-  fullName          String      @db.VarChar(100) // Captured at registration; replaces firstName + lastName
+  fullName          String?     @db.VarChar(100) // Null until the rider completes the profile; replaces firstName + lastName
   email             String?     @unique // Optional at registration
   gender            Gender? // Optional, not collected at registration
   dateOfBirth       DateTime?   @db.Date // Optional, not collected at registration

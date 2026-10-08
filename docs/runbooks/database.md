@@ -21,6 +21,7 @@ pg_restore --list "<file>"   # check the file is readable
 - Current backup: `C:\Users\HP\Documents\treeps_db-backup-2026-09-29.dump`. Keep until F4 is done.
 - Backup before the rider auth migration: `C:\Users\HP\Documents\treeps_db-backup-2026-10-05.dump` (taken 2026-10-05; the tables were empty).
 - Backup before the driver auth migration: `C:\Users\HP\Documents\treeps_db-backup-2026-10-07.dump` (taken 2026-10-07; `Rider`, `Device`, `RefreshToken` empty, `OtpSession` 11 rows).
+- Backup before the rider `PROFILE_PENDING` migration: `C:\Users\HP\Documents\treeps_db-backup-2026-10-07-rider-verify.dump` (taken 2026-10-07; `Rider`, `Device`, `RefreshToken` empty, `OtpSession` 15 rows).
 - Restore only into a NEW empty database, never over an existing one.
 
 ## Migrate workflow

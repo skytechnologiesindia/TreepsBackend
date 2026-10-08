@@ -1,6 +1,6 @@
 # POST /v1/rider/auth/verify-otp
 
-Status: APPROVED (owner, 2026-10-05). Items still marked TO DECIDE must be resolved in this doc before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row. **Redesigned 2026-10-07 (decisions 162 to 165): a new phone now gets a Rider row and real tokens here; there is no registration token. The redesign is not approved and not built; the code still follows the old design.**
+Status: APPROVED (owner, 2026-10-05). Items still marked TO DECIDE must be resolved in this doc before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row. **Redesigned 2026-10-07 (decisions 162 to 165): a new phone now gets a Rider row and real tokens here; there is no registration token. Built 2026-10-08 (this route only; the old register route is replaced in the next step).**
 
 Part of the unified phone-OTP flow (see the diagram in `rider-send-otp.md`). The path `/v1/rider/auth/verify-otp` is APPROVED; the controller writes `@Controller('rider/auth')` and never `v1`.
 
@@ -94,6 +94,13 @@ All errors use the envelope in `standards/response-format.md`.
 
 The service reads only sessions with purpose `RIDER_AUTH` (both for finding the newest session and for the 10-per-hour count), so a driver code for the same phone can never log a rider in, and driver attempts do not count toward the rider limit.
 
+## Race tests (real Postgres)
+`src/modules/rider-auth/verify-otp.pg.spec.ts`, skipped unless `RUN_PG_TESTS=1`, so `npm test` stays database-free. It uses only the scratch database `treeps_scratch_rider_verify` (a constant in `testing/scratch-db.ts`; only host, port, user and password come from `DATABASE_URL`, so it can never open `treeps_db`).
+```
+$env:RUN_PG_TESTS = '1'; npx vitest run src/modules/rider-auth/verify-otp.pg.spec.ts
+```
+A barrier holds both requests until each has passed the code check and the rider lookup, so the race happens inside the transaction. Ten rounds: exactly one `OK`, the other `OTP_INVALID`, one Rider per phone. A second test makes the lookup answer "no rider" while a Rider already holds the phone: the reply is `CONFLICT`, nothing is written and the code is still unused.
+
 ## Rate limit, logging and audit
 - Rate limit (decision 121): 10 verify attempts per phone per hour, on top of the per-session cap of 5 wrong attempts. At most 10 guesses per phone per hour against 1,000,000 possible codes. No per-IP limit on this route in the MVP.
 - Log: `requestId`, code, status. Never the phone, the OTP, tokens, token hashes, `fcmToken`, the provider session id or URL.
@@ -135,5 +142,5 @@ The service reads only sessions with purpose `RIDER_AUTH` (both for finding the 
 | 2026-10-06 | Built: route, service, DTOs, HS256 access token (no new dependency), rider view; audit log lines deferred until a request context exists | verify-otp code step (decision 149) |
 | 2026-10-06 | Reads only `RIDER_AUTH` sessions (a driver session is ignored) | Driver send-otp added `DRIVER_AUTH` sessions for the same phones (decision 150) |
 | 2026-10-06 | New-phone path: marking the code used and storing the registration token hash are one conditional write; the Rider lookup now runs before the code is marked used | A crash could burn the code without issuing a token |
-| 2026-10-07 | **Redesigned:** a new phone creates a `PROFILE_PENDING` Rider, Device and RefreshToken in one transaction and replies with the same shape as an existing rider (`isNewRider` true, `rider`, real tokens); `registrationToken` removed; `CONFLICT` added; `PROFILE_PENDING` riders can log in. Not built | Owner instruction of 2026-10-07 (decision 162) |
+| 2026-10-07 | **Redesigned:** a new phone creates a `PROFILE_PENDING` Rider, Device and RefreshToken in one transaction and replies with the same shape as an existing rider (`isNewRider` true, `rider`, real tokens); `registrationToken` removed; `CONFLICT` added; `PROFILE_PENDING` riders can log in. Built 2026-10-08 (migration `20261007160000_rider_profile_pending`) | Owner instruction of 2026-10-07 (decision 162) |
 | 2026-10-07 | Steps 2 to 5 and the single-use update moved to the shared `OtpCodeChecker` and `markCodeUsed` (`src/modules/otp/otp-code-checker.ts`); the DTOs moved to `src/modules/otp/dto/`; `AccessTokenService` moved to `src/common/jwt/`. No behavior change; the driver route uses the same code with purpose `DRIVER_AUTH` | Driver verify-otp (decision 155) |

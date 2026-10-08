@@ -15,7 +15,8 @@ import pg from 'pg';
 // checks current_database() before it deletes anything.
 export const SCRATCH_DB_NAME = 'treeps_scratch_register';
 export const SCRATCH_DRIVER_DB_NAME = 'treeps_scratch_driver';
-export type ScratchName = typeof SCRATCH_DB_NAME | typeof SCRATCH_DRIVER_DB_NAME;
+export const SCRATCH_RIDER_VERIFY_DB_NAME = 'treeps_scratch_rider_verify';
+export type ScratchName = typeof SCRATCH_DB_NAME | typeof SCRATCH_DRIVER_DB_NAME | typeof SCRATCH_RIDER_VERIFY_DB_NAME;
 export const PG_TESTS_ENABLED = process.env.RUN_PG_TESTS === '1';
 
 function urlFor(database: string): string {

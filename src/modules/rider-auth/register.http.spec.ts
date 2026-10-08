@@ -306,7 +306,9 @@ describe('POST /v1/rider/auth/register', () => {
   describe('end to end: send-otp, verify-otp, register, then log in again', () => {
     const verifyBody = (otp = FAKE_CODE) => ({ phoneNumber: PHONE, otp, device });
 
-    it('a new phone registers, and the next verify-otp for the same phone returns tokens (isNewRider false)', async () => {
+    // The registration-token flow is gone from verify-otp (decision 162): it now creates the rider and
+    // returns tokens. This test is rewritten with the complete-profile step of register (next step).
+    it.skip('a new phone registers, and the next verify-otp for the same phone returns tokens (isNewRider false)', async () => {
       // 1. send-otp
       const sent = await call(ctx.app, 'send-otp', { phoneNumber: PHONE });
       expect(sent.res.status).toBe(200);

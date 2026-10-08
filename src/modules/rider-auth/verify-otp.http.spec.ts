@@ -140,17 +140,28 @@ describe('POST /v1/rider/auth/verify-otp', () => {
   });
 
   describe('a phone with no rider', () => {
-    it('replies 200 with isNewRider true and a registration token, and creates no rider', async () => {
+    it('replies 200 with isNewRider true, the rider and real tokens (same keys as a login)', async () => {
       const session = ctx.session();
       const { res, body: reply } = await post(ctx.app, body());
       expect(res.status).toBe(200);
-      expect(Object.keys(reply.data).sort()).toEqual(['isNewRider', 'registrationToken', 'registrationTokenExpiresInSeconds']);
+      expect(Object.keys(reply.data).sort()).toEqual(['isNewRider', 'rider', 'tokens']);
       expect(reply.data.isNewRider).toBe(true);
-      expect(reply.data.registrationToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
-      expect(reply.data.registrationTokenExpiresInSeconds).toBe(600);
-      expect(session.registrationTokenHash).toBe(sha256Hex(reply.data.registrationToken));
-      expect(ctx.db.tables.rider).toHaveLength(0);
+      expect(reply.data.rider).toMatchObject({ fullName: null, email: null, status: 'PROFILE_PENDING', isPhoneVerified: true, isProfileComplete: false });
+      expect(reply.data.tokens.accessToken.split('.')).toHaveLength(3);
+      expect(reply.data.tokens.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(reply.data).not.toHaveProperty('registrationToken');
+      expect(reply.data).not.toHaveProperty('profileComplete');
+      expect(ctx.db.tables.rider).toHaveLength(1);
+      expect(ctx.db.tables.refreshToken).toHaveLength(1);
+      expect(session.registrationTokenHash).toBeNull();
       expect(JSON.stringify(reply)).not.toContain('fake-session');
+    });
+
+    it('two simultaneous requests with the right code create exactly one rider (the real race is in verify-otp.pg.spec.ts)', async () => {
+      ctx.session();
+      const [a, b] = await Promise.all([post(ctx.app, body()), post(ctx.app, body())]);
+      expect([a.res.status, b.res.status].sort()).toEqual([200, 422]);
+      expect(ctx.db.tables.rider).toHaveLength(1);
     });
   });
 

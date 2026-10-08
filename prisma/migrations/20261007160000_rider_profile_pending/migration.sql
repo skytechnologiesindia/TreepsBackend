@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "RiderStatus" ADD VALUE 'PROFILE_PENDING';
+
+-- AlterTable
+ALTER TABLE "Rider" ALTER COLUMN "fullName" DROP NOT NULL;

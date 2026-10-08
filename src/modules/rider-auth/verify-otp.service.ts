@@ -1,34 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { OtpPurpose, RiderStatus } from '@prisma/client';
+import { OtpPurpose, RiderStatus, type Rider } from '@prisma/client';
 import { CLOCK, type Clock } from '../../common/clock.js';
+import { violatedUniqueIndex } from '../../common/database/unique-violation.js';
 import { AppException } from '../../common/errors/app.exception.js';
 import { newOpaqueToken, sha256Hex } from '../../common/tokens.js';
-import { REFRESH_TOKEN_TTL_SECONDS, REGISTRATION_TOKEN_TTL_SECONDS } from '../../config/tokens.js';
+import { REFRESH_TOKEN_TTL_SECONDS } from '../../config/tokens.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { AccessTokenService, type AuthTokens } from '../../common/jwt/access-token.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { markCodeUsed, OtpCodeChecker } from '../otp/otp-code-checker.js';
 import { OTP_PROVIDER, type OtpProvider } from '../otp/provider/otp-provider.js';
 import { riderView, type RiderView } from './rider-view.js';
 
-export interface LoginResult {
-  isNewRider: false;
+// One shape for a new and an existing rider (docs/api/rider-verify-otp.md, Response fields).
+export interface VerifyOtpResult {
+  isNewRider: boolean;
   rider: RiderView;
-  tokens: {
-    accessToken: string;
-    accessTokenExpiresInSeconds: number;
-    refreshToken: string;
-    refreshTokenExpiresInSeconds: number;
-  };
+  tokens: AuthTokens;
 }
-
-export interface NewRiderResult {
-  isNewRider: true;
-  registrationToken: string;
-  registrationTokenExpiresInSeconds: number;
-}
-
-export type VerifyOtpResult = LoginResult | NewRiderResult;
 
 @Injectable()
 export class VerifyOtpService {
@@ -57,43 +46,77 @@ export class VerifyOtpService {
     const rider = await this.prisma.rider.findUnique({ where: { phoneNumber } });
 
     // 7. Single use: only one request can turn verifiedAt from empty to set. For a new phone this is
-    // the same write that stores the registration token hash, so a failure cannot burn the code
-    // without issuing a token.
-    if (!rider) return this.issueRegistrationToken(session.id, now);
+    // the first write of the transaction that creates the rider, so a failure cannot burn the code.
+    if (!rider) return this.createRider(session.id, dto, now);
 
     await markCodeUsed(this.prisma, session.id, now);
 
-    if (rider.status !== RiderStatus.ACTIVE) {
+    // A rider who has not finished the profile (PROFILE_PENDING) logs in like any other.
+    if (rider.status !== RiderStatus.ACTIVE && rider.status !== RiderStatus.PROFILE_PENDING) {
       await this.prisma.otpSession.update({ where: { id: session.id }, data: { consumedAt: now } });
       throw new AppException('ACCOUNT_BANNED');
     }
     return this.login(rider.id, session.id, dto, now);
   }
 
-  // A phone with no rider gets a one-time registration token. Only its SHA-256 hash is stored.
-  // One conditional write marks the code used and stores the hash together (a single statement is
-  // atomic, so no transaction is needed). No row changed: another request used the code first.
-  private async issueRegistrationToken(sessionId: string, now: Date): Promise<NewRiderResult> {
-    const registrationToken = newOpaqueToken();
-    const issued = await this.prisma.otpSession.updateMany({
-      where: { id: sessionId, verifiedAt: null },
-      data: {
-        verifiedAt: now,
-        registrationTokenHash: sha256Hex(registrationToken),
-        registrationExpiresAt: new Date(now.getTime() + REGISTRATION_TOKEN_TTL_SECONDS * 1000),
-      },
-    });
-    if (issued.count === 0) throw new AppException('OTP_INVALID', { field: 'otp' });
-    return {
-      isNewRider: true,
-      registrationToken,
-      registrationTokenExpiresInSeconds: REGISTRATION_TOKEN_TTL_SECONDS,
-    };
+  // A phone with no rider: ONE transaction marks the code used, creates the Rider (PROFILE_PENDING, no
+  // name or email yet), the device and the refresh token. If any step fails nothing is written and the
+  // code stays usable. In Express terms, a Mongo multi-document transaction. The reply has the same
+  // shape as a login, with isNewRider true.
+  private async createRider(sessionId: string, dto: VerifyOtpDto, now: Date): Promise<VerifyOtpResult> {
+    const { device } = dto;
+    const refreshToken = newOpaqueToken();
+
+    let rider: Rider;
+    try {
+      rider = await this.prisma.$transaction(async (tx) => {
+        // The single-use step first: a parallel request waits here, then matches no row.
+        await markCodeUsed(tx, sessionId, now, { consumedAt: now });
+        const created = await tx.rider.create({
+          data: {
+            phoneNumber: dto.phoneNumber,
+            fullName: null,
+            email: null,
+            status: RiderStatus.PROFILE_PENDING,
+            isPhoneVerified: true,
+            isProfileComplete: false,
+            lastLoginAt: now, // creating the account counts as the first login
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        await tx.device.create({
+          data: {
+            riderId: created.id,
+            deviceId: device.deviceId,
+            platform: device.platform,
+            appVersion: device.appVersion,
+            fcmToken: device.fcmToken ?? null,
+            lastSeenAt: now,
+          },
+        });
+        await tx.refreshToken.create({
+          data: {
+            tokenHash: sha256Hex(refreshToken),
+            riderId: created.id,
+            deviceId: device.deviceId,
+            expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1000),
+            createdAt: now,
+          },
+        });
+        return created;
+      });
+    } catch (error) {
+      // Another session created this phone's Rider first; the transaction rolled back, so the code is not used.
+      if (violatedUniqueIndex(error) === 'phoneNumber') throw new AppException('CONFLICT');
+      throw error;
+    }
+    return this.reply(true, rider, refreshToken, dto.device.deviceId, now);
   }
 
-  // Login for an ACTIVE rider: device, refresh token, lastLoginAt and consumedAt change together
+  // Login for an ACTIVE or PROFILE_PENDING rider: device, refresh token, lastLoginAt and consumedAt change together
   // or not at all (one transaction).
-  private async login(riderId: string, sessionId: string, dto: VerifyOtpDto, now: Date): Promise<LoginResult> {
+  private async login(riderId: string, sessionId: string, dto: VerifyOtpDto, now: Date): Promise<VerifyOtpResult> {
     const { device } = dto;
     const refreshToken = newOpaqueToken();
 
@@ -130,9 +153,13 @@ export class VerifyOtpService {
       return tx.rider.update({ where: { id: riderId }, data: { lastLoginAt: now } });
     });
 
-    const access = this.accessTokens.issue({ riderId, deviceId: device.deviceId, now });
+    return this.reply(false, rider, refreshToken, device.deviceId, now);
+  }
+
+  private reply(isNewRider: boolean, rider: Rider, refreshToken: string, deviceId: string, now: Date): VerifyOtpResult {
+    const access = this.accessTokens.issue({ riderId: rider.id, deviceId, now });
     return {
-      isNewRider: false,
+      isNewRider,
       rider: riderView(rider),
       tokens: {
         accessToken: access.token,

@@ -9,11 +9,11 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { AccessTokenService } from '../../common/jwt/access-token.service.js';
 import type { RegisterDto } from './dto/register.dto.js';
 import { riderView, type RiderView } from './rider-view.js';
-import type { LoginResult } from './verify-otp.service.js';
+import type { VerifyOtpResult } from './verify-otp.service.js';
 
 export interface RegisterResult {
   rider: RiderView;
-  tokens: LoginResult['tokens'];
+  tokens: VerifyOtpResult['tokens'];
 }
 
 // A city or state is stored trimmed, or null when nothing is left (the one explicit normalization
