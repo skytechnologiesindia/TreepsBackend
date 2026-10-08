@@ -77,12 +77,14 @@ Admin visibility (CLAUDE.md): `GET /v1/admin/riders`, `GET /v1/admin/riders/:id`
 Docs updated, **code not changed, owner approval pending**: `api/rider-verify-otp.md`, `rider-register.md` (now authenticated complete-profile), new `rider-me.md` and `driver-me.md`, `standards/response-format.md`, `rider-send-otp.md`.
 - [ ] Owner approves the redesign docs and answers the TO DECIDE items (route rename, 200 vs 201, email required, `PROFILE_PENDING` as column default, drop the two `OtpSession` columns, `/me` banned behaviour, guard global vs per route, abandoned-row cleanup)
 - [x] Migration `20261007160000_rider_profile_pending` (`RiderStatus` + `PROFILE_PENDING`, `Rider.fullName` nullable), generated with `prisma migrate diff`, tested on a scratch database, applied to `treeps_db` on 2026-10-08 (backup `treeps_db-backup-2026-10-07-rider-verify.dump`). Later maybe drop `OtpSession.registrationTokenHash` and `registrationExpiresAt` (TO DECIDE)
-- [ ] JWT guard (`verifyHs256Jwt` exists), `@Roles`, `@CurrentUser`, and a decision on `@Public()` for the open routes
+- [x] JWT access-token guard (2026-10-08): `src/common/auth/jwt-auth.guard.ts` + `@AuthUser()`; checks signature, issuer, expiry and that the role matches the route domain (401 / 403). Guard is per route (`@UseGuards`). `@Roles` and `@Public()` not needed yet
+- [ ] Known limit (decision 168): the guard does not check account status in the DB; a banned rider's access token stays valid until it expires (max 15 min). Revisit with refresh/logout (M6)
+- [x] Complete-profile follow-ups (2026-10-08): omitted email is kept, a changed email resets `isEmailVerified`, duplicate email is `EMAIL_IN_USE` 409 including the race, real-Postgres email race test (`register.pg.spec.ts`, scratch DB dropped after the run)
 - [x] Rider `verify-otp.service.ts` (2026-10-08): creates Rider + Device + RefreshToken in one transaction for a new phone, `PROFILE_PENDING` logs in, `CONFLICT` on a phone race, registration-token branch removed; tests incl. real-Postgres race (`verify-otp.pg.spec.ts`). The old register route and its tests are untouched; its end-to-end test is skipped until register is replaced
-- [ ] Rider `register.service.ts`, `register.dto.ts`, controller: complete-profile (conditional update, 200, `{ rider }`); `rider-view.ts` with nullable `fullName`
-- [ ] `GET /v1/rider/me` and `GET /v1/driver/me` (controllers, services)
-- [ ] Error registry: remove `REGISTRATION_TOKEN_INVALID` and its spec rows (19 becomes 18); `OpaqueToken` stays (refresh token)
-- [ ] Rewrite tests: `register.http.spec.ts`, `register.service.spec.ts`, `register.pg.spec.ts`, `verify-otp.*.spec.ts`, `error-registry.spec.ts`, `real-routes.spec.ts`; add me and guard specs
+- [x] Rider complete-profile (2026-10-08): `register.service.ts` `completeProfile`, `register.dto.ts` (fullName, email, city, state), controller behind the guard, 200 `{ rider }`; second call saves again (decision 167)
+- [ ] `GET /v1/rider/me` and `GET /v1/driver/me`: deferred until the driver submit-for-review step (owner, 2026-10-08)
+- [x] Error registry: `REGISTRATION_TOKEN_INVALID` removed, 19 becomes 18 (2026-10-08); `OtpProviderNotBuiltError` and `REGISTRATION_TOKEN_TTL_SECONDS` removed too
+- [x] Tests (2026-10-08): `register.http.spec.ts` rewritten, `jwt-auth.guard.http.spec.ts` added, `register.service.spec.ts` and `register.pg.spec.ts` deleted (registration-token design), `error-registry.spec.ts` and `startup-failure.spec.ts` updated
 - [ ] Admin endpoints (still deferred): show `PROFILE_PENDING` riders and the profile completion rate
 
 ## L0 checklist

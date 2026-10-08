@@ -1,8 +1,9 @@
 # POST /v1/rider/auth/register (complete profile)
 
-Status: REDESIGNED 2026-10-07 on the owner's instruction (decision 162 to 165). **The earlier registration-token design (APPROVED 2026-10-05, built 2026-10-07, decision 151) is superseded; the redesign has not been approved or built.** Items marked TO DECIDE have no decision yet and must be resolved before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row.
+Status: BUILT 2026-10-08 on the owner's override (decisions 162 to 165, plus the 2026-10-08 choices in the changelog). Items marked TO DECIDE have no decision yet. A change after approval needs a changelog row. **`GET /v1/rider/me` and `GET /v1/driver/me` are deferred until the driver submit-for-review step; the app reads `status` and `isProfileComplete` from the verify-otp and register replies instead.**
 
-The path `/v1/rider/auth/register` is kept so the route does not move; the controller writes `@Controller('rider/auth')` and never `v1`. **Whether to rename it (for example `PATCH /v1/rider/profile`) now that it only completes a profile: TO DECIDE.** Sibling docs: `rider-send-otp.md`, `rider-verify-otp.md`, `rider-me.md`, `rider-refresh.md`, `rider-logout.md`.
+The path `/v1/rider/auth/register` is kept so the route does not move; the controller writes `@Controller('rider/auth')` and never `v1`. **Whether to rename it (for example `PATCH /v1/rider/profile`) now that it only completes a profile: TO DECIDE.** Sibling docs: `rider-send-otp.md`, `rider-verify-otp.md`, `rider-me.md` (deferred), `rider-refresh.md`, `rider-logout.md`.
+
 
 ## Flow (REDESIGNED)
 Phone verification happens once. The profile screen can be finished days later, because the rider already has tokens after verify-otp.
@@ -11,7 +12,7 @@ Phone verification happens once. The profile screen can be finished days later, 
 send-otp -> verify-otp -> (new phone)       Rider created (PROFILE_PENDING) + tokens, isNewRider true
                        -> (existing rider)  login + tokens, isNewRider false
                        -> (SUSPENDED / BLOCKED / DELETED) ACCOUNT_BANNED
-GET /v1/rider/me  -> app reads status + isProfileComplete and picks the screen
+GET /v1/rider/me  -> DEFERRED until the driver submit-for-review step; until then the app reads status + isProfileComplete from the verify-otp / register reply
 POST /v1/rider/auth/register (access token) -> name + email set, status ACTIVE, isProfileComplete true
 refresh: new token pair, rotating        logout: revoke this device's token
 ```
@@ -38,8 +39,8 @@ Body, JSON. **Nothing else is accepted**; unknown fields (including `registratio
 Rules for the rows above (unchanged from the earlier design):
 - **Identity:** not in the body. The rider id is the `sub` claim of the access token; the phone is the one stored on that Rider row at verify-otp.
 - **fullName:** the `PersonName` type (`input-validation.md` section 2b). Violations are rejected, never fixed. Reasons: `TOO_SHORT`, `TOO_LONG`, and `INVALID_FORMAT` for a disallowed character, a leading or trailing space, or a double space. Letters and combining marks mean Devanagari and other Indian-script names are accepted. The hyphen `-` is allowed (decision 141), but not as the first or last character and not twice in a row. Known limits: a name made only of punctuation passes the character rule, and two spellings of the same accented letter are stored as sent.
-- **email:** optional; omitted means no email. `null` is `WRONG_TYPE` (decision 46). No lowercasing: an address containing an uppercase letter or any space is rejected with `INVALID_FORMAT`, and the app lowercases before sending. Why: Postgres unique is case-sensitive. An email that already belongs to another rider is `EMAIL_IN_USE`. The shape rule is the `Email` type in `input-validation.md` section 2b (decision 136). **Whether email becomes required for a complete profile: TO DECIDE (it is optional, as before).**
-- **registeredCity / registeredState:** the only fields with a documented explicit normalization: the server trims leading and trailing whitespace before storing, and stores `null` if nothing is left. `null` is accepted. An empty string `""` is rejected (`TOO_SHORT`). A wrong type, a value over 100 characters or one containing U+0000 is `INVALID_INPUT`.
+- **email:** optional; **omitted means "keep the email as it is"** (nothing is wiped; on the first call that leaves it null). `null` is `WRONG_TYPE` (decision 46), so the email cannot be removed through this route. **A different email than the stored one sets `isEmailVerified` back to false**; the same email sent again leaves it alone. No lowercasing: an address containing an uppercase letter or any space is rejected with `INVALID_FORMAT`, and the app lowercases before sending. Why: Postgres unique is case-sensitive, and because only lowercase gets in, `A@x.com` and `a@x.com` can never be two different stored emails through this API. An email that already belongs to another rider is `EMAIL_IN_USE` (409, `field` `email`), found by the pre-check or, when two calls race, by the unique index. The shape rule is the `Email` type in `input-validation.md` section 2b (decision 136). **Whether email becomes required for a complete profile: TO DECIDE (it is optional, as before).**
+- **registeredCity / registeredState:** like email: **sent means saved, omitted keeps the stored value.** A value is trimmed of leading and trailing whitespace before it is stored. `null` and a whitespace-only value are accepted but treated as not sent, so they keep the stored value: **clearing a city or state is not supported for now.** On the first call nothing is stored yet, so omitted leaves them null. An empty string `""` is rejected (`TOO_SHORT`). A wrong type, a value over 100 characters or one containing U+0000 is `INVALID_INPUT`.
 
 Shared types (`input-validation.md` section 2b): `PersonName`, `Email`, `Text` for the city and state, `OptionalNullable`. `OpaqueToken`, `DeviceId`, `AppVersion` and `Nested` are no longer used by this route.
 
@@ -72,13 +73,13 @@ Never in the reply: `deletedAt`, `lastLoginAt`, any token or hash, any internal 
 1. JWT guard: valid access token, role `RIDER`; otherwise `UNAUTHORIZED` or `FORBIDDEN`.
 2. Throttler guard (IP): 10 per hour per IP (existing `register` limit; whether it should become per rider now: TO DECIDE).
 3. Validate the body.
-4. Pre-check: another Rider already has this email: `EMAIL_IN_USE` (so a fixable mistake gives a clear answer before the write).
-5. One conditional update: set `fullName`, `email`, `registeredCity`, `registeredState`, `status` `ACTIVE`, `isProfileComplete` true **where** `id` is the token's rider and `status` is `PROFILE_PENDING`. If it changes no row, read the rider: no row (a token for a deleted rider) is `UNAUTHORIZED`; status `ACTIVE` is `CONFLICT` (the profile was already completed; changing it later is a separate profile-update API, not built); `SUSPENDED`, `BLOCKED` or `DELETED` is `ACCOUNT_BANNED`. A unique violation on email becomes `EMAIL_IN_USE`, read from the violated index name as in decision 151 (`Rider_email_key`).
-6. Reply 200 with the rider.
+4. Pre-check: another Rider (not the caller) already has this email: `EMAIL_IN_USE` (so a fixable mistake gets a clear answer before the write; the rider's own email is not a clash).
+5. One conditional update: set `fullName`, `status` `ACTIVE`, `isProfileComplete` true, plus `email` (with `isEmailVerified` false) when the body sends an email different from the stored one, and `registeredCity` / `registeredState` when the body sends a non-blank value, **where** `id` is the token's rider and `status` is `PROFILE_PENDING` **or `ACTIVE`** (so a second call saves the new values again; owner instruction 2026-10-08). The rider is read first: no row (a token for a deleted rider) is `UNAUTHORIZED`. If the update changes no row, the status is `SUSPENDED`, `BLOCKED` or `DELETED`: `ACCOUNT_BANNED`. A unique violation on email becomes `EMAIL_IN_USE`, read from the violated index name as in decision 151 (`Rider_email_key`). Email, city and state all keep their stored value when omitted.
+6. Read the rider back and reply 200 with it.
 
-One statement is atomic, so no transaction is needed. Two parallel completes: exactly one matches the `PROFILE_PENDING` row; the other gets `CONFLICT`.
+The write is one statement, so no transaction is needed. Two parallel calls from one rider both succeed and the last write wins; two riders racing for one email give one 200 and one `EMAIL_IN_USE` (the unique index decides; tested on real Postgres).
 
-## Where it lives (after the change; the current code is still the old design)
+## Where it lives
 `src/modules/rider-auth/`: `register.service.ts` (rewritten: `completeProfile`, the order above), `dto/register.dto.ts` (loses `registrationToken` and `device`), the route in `rider-auth.controller.ts` (`@HttpCode(200)`, behind the JWT guard), `rider-view.ts` (`fullName` nullable). The JWT guard and its decorators are new (see `rider-me.md`, Gate).
 
 ## Reference data used
@@ -86,7 +87,7 @@ Config values, never hardcoded: access TTL 900 s, refresh TTL 2592000 s, the reg
 
 ## State changes
 - Before: one Rider `PROFILE_PENDING`, `fullName` and `email` null, `isProfileComplete` false (created by verify-otp). After: the same row with `fullName` (and optional `email`, city, state) set, `status` `ACTIVE`, `isProfileComplete` true. No Device, RefreshToken or OtpSession change.
-- Idempotency: not replayable. A second call gets `CONFLICT` because the status is no longer `PROFILE_PENDING`. No `Idempotency-Key` header in the MVP. If the reply is lost the app calls `GET /v1/rider/me`, sees `ACTIVE`, and moves on.
+- Idempotency: calling again is allowed. A second call saves the new values and returns the current rider (200, no error). No `Idempotency-Key` header in the MVP.
 - Concurrency: see Order of operations.
 
 ## Data stored
@@ -270,11 +271,11 @@ All errors use the envelope in `standards/response-format.md`.
 | Code | HTTP status | When it happens | `field` marker | Rider-safe message | How the app UI should react |
 |---|---|---|---|---|---|
 | INVALID_INPUT | 400 | Missing, wrong type, wrong format, too short or long, or unknown field (`details` lists all) | first invalid field | "Please check your input." | Highlight the fields in `details` |
-| UNAUTHORIZED | 401 | Missing, malformed, wrongly signed or expired access token; the rider no longer exists | null | "Please log in again." | Try `refresh`; if that fails, start phone login again |
-| FORBIDDEN | 403 | A valid token whose `role` is not `RIDER` (for example a driver token) | null | "You don't have access to this." | Treat as a bug; log out |
+| UNAUTHORIZED | 401 | No `Authorization: Bearer` header, a malformed, wrongly signed, wrong-issuer or expired access token; or the rider no longer exists | null | "Please log in again." | Try `refresh`; if that fails, start phone login again |
+| FORBIDDEN | 403 | A valid token whose `role` does not match the route domain (a `DRIVER` token on `/v1/rider/*`, a `RIDER` token on `/v1/driver/*`) | null | "You don't have access to this." | Treat as a bug; log out |
 | ACCOUNT_BANNED | 403 | The rider is SUSPENDED, BLOCKED or DELETED | null | "This account can't book rides." (proposed) | Show support contact |
 | EMAIL_IN_USE | 409 | Another rider already has this email | email | "This email is already in use." (proposed) | Highlight the email field |
-| CONFLICT | 409 | The profile was already completed (status is not `PROFILE_PENDING`), or a parallel call won | null | "This can't be done right now. Please refresh and try again." | Call `GET /v1/rider/me` and move to the screen it says |
+| CONFLICT | 409 | Not raised by this route any more (a second call is accepted) | null | n/a | n/a |
 | RATE_LIMITED | 429 | More than 10 calls per hour from one IP | null | "Too many requests. Try again shortly." | Disable the button briefly |
 | INTERNAL_ERROR | 500 | A bug or database failure | null | "Something went wrong. Please try again." | Show retry; nothing was written |
 
@@ -301,29 +302,29 @@ Until then there is no way to suspend or block a rider through the API.
 - A rider who verifies on a second device before completing the profile gets another Device and tokens; either device may complete the profile.
 - `registeredCity` and `registeredState` are informational only; never used to decide service area.
 - A DELETED rider's phone: see Data model, DELETED riders and the unique phone. verify-otp gives it `ACCOUNT_BANNED`.
-- The profile can be completed once. Editing it afterwards needs a profile-update API (not built, no doc).
+- The profile can be sent again; `fullName` is replaced each time; email, city and state are replaced only when sent (email: and only when different, then `isEmailVerified` resets). They cannot be cleared through this route. Other profile edits (photo, gender) need a profile-update API (not built, no doc).
 - `device.fcmToken` is set at verify-otp; a route to change it later is deferred (decision 144).
 - Access tokens stay valid for up to 15 minutes after a ban (stateless JWT, decision 144), so a banned rider with a live token passes the guard until it expires; the conditional update still refuses the write.
 - SMS, DLT registration and the provider are covered in `rider-send-otp.md`.
 
 ## Required tests
 - Happy path: a `PROFILE_PENDING` rider with a valid access token sends `fullName`: 200; the rider is `ACTIVE`, `isProfileComplete` true, `fullName` stored, `isPhoneVerified` true, `isEmailVerified` false; no Device or RefreshToken is created; `updatedAt` moved.
-- Optional fields: `email`, `registeredCity`, `registeredState` stored when sent; city `"  Ranchi "` stored as `Ranchi`; whitespace-only stored as null; omitted stored as null; a bad city never blocks an otherwise valid call.
+- Optional fields: `email`, `registeredCity`, `registeredState` stored when sent; city `"  Ranchi "` stored as `Ranchi`; omitted on a new profile stays null; on a later call omitted, `null` and whitespace-only keep the stored value; a bad city never blocks an otherwise valid call; a changed email resets `isEmailVerified`, the same or an omitted email does not.
 - Auth: no token, a malformed token, a token signed with another secret, an expired token and an `alg: none` token each give `UNAUTHORIZED`; a `DRIVER` token gives `FORBIDDEN`; a token for a rider id that no longer exists gives `UNAUTHORIZED`. The body's `phoneNumber` or `id` is `UNKNOWN_FIELD`.
 - Invalid input: `fullName` missing, 1 character, 101 characters, with a digit, a leading space, a trailing space, a double space; `email` over 254, with an uppercase letter, with a space, `null`; city as `""`, a number, over 100 characters.
 - Unknown field: `registrationToken`, `device`, `phoneNumber`, `otp`, `status`, `isProfileComplete`, `role`, `id`.
 - Name rules accept: `Anita Kumari`, `O'Brien`, `O’Brien`, `Dr. Singh`, `Mary-Jane`, a Devanagari name; reject `-Mary`, `Mary-`, `Mary--Jane`, `Anita1`, `Anita  Kumari`, ` Anita`, `Anita `.
-- Status rules: an `ACTIVE` rider gets `CONFLICT` and nothing changes; SUSPENDED, BLOCKED and DELETED riders get `ACCOUNT_BANNED` and nothing changes.
+- Status rules: an `ACTIVE` rider may call again and gets 200 with the new values saved; SUSPENDED, BLOCKED and DELETED riders get `ACCOUNT_BANNED` and nothing changes.
 - Email: an email used by another rider is `EMAIL_IN_USE` with `field` `email`, the rider stays `PROFILE_PENDING` and can retry with another email; a unique violation raised by the database (a parallel call) is also `EMAIL_IN_USE`.
-- Duplicate call: a second identical call gets `CONFLICT` and changes nothing.
-- Race condition (real Postgres): two simultaneous completes for one rider give exactly one 200 and one `CONFLICT`; two riders completing with one email give one 200 and one `EMAIL_IN_USE`.
+- Second call: a second call with new values returns 200 and the stored values are the new ones.
+- Race condition (real Postgres, `register.pg.spec.ts`): two riders completing with one email give exactly one 200 and one `EMAIL_IN_USE` (also 8 at once); one rider calling twice at once with the same email gets two 200s; a changed email resets `isEmailVerified`, an omitted one is kept; the database unique is case-sensitive.
 - Rate limit: the 11th call from one IP in an hour is `RATE_LIMITED`.
-- End to end: send-otp, verify-otp (new phone) gives tokens and a `PROFILE_PENDING` rider, `GET /v1/rider/me` says pending, register with the access token, `GET /v1/rider/me` says `ACTIVE`; then logout and a second verify-otp returns `isNewRider` false and status `ACTIVE`.
+- End to end: send-otp, verify-otp (new phone) gives tokens and a `PROFILE_PENDING` rider, register with the access token gives `ACTIVE` and `isProfileComplete` true (built as a test).
 - Secrets: no token, hash or phone in any log line.
 - Time: stored timestamps are UTC instants; `rider.createdAt` is ISO UTC and `rider.createdAtIst` is its India-time twin.
 
 ## Race tests (real Postgres)
-`src/modules/rider-auth/register.pg.spec.ts` was written for the registration-token design and must be rewritten for the cases above (scratch database `treeps_scratch_register`, only with `RUN_PG_TESTS=1`, as before; the scratch-database safety rules do not change). The new verify-otp race (two simultaneous verifies for a new phone create exactly one Rider) belongs to `rider-verify-otp.md`.
+`src/modules/rider-auth/register.pg.spec.ts` (rewritten 2026-10-08 for the email race; the registration-token race tests are gone). Scratch database `treeps_scratch_register`, only with `RUN_PG_TESTS=1`; the scratch-database safety rules do not change. The test holds every caller at `rider.updateMany` so the race happens at the write.
 
 ## Changelog
 | Date | What changed | Why |
@@ -337,3 +338,6 @@ Until then there is no way to suspend or block a rider through the API.
 | 2026-10-06 | `OtpPurpose` gained `DRIVER_AUTH` (migration `20261006105503_add_driver_auth_otp_purpose`) | Driver send-otp (decision 150) |
 | 2026-10-07 | Built (registration-token design): route, service, DTO, rate limit, tests (in-memory and real-Postgres race tests) | register code step (decision 151) |
 | 2026-10-07 | **Redesigned: register is now an authenticated complete-profile call.** No `registrationToken` or `device` in the body; 200 with `{ rider }`; `PROFILE_PENDING` to `ACTIVE`; `isProfileComplete` set true; `REGISTRATION_TOKEN_INVALID` removed; `UNAUTHORIZED`, `FORBIDDEN`, `ACCOUNT_BANNED` added; Rider `fullName` nullable and `RiderStatus` gains `PROFILE_PENDING` (Data model, not applied). The code still follows the old design | Owner instruction of 2026-10-07 (decisions 162 to 165) |
+| 2026-10-08 | **Built.** JWT access-token guard (`src/common/auth/jwt-auth.guard.ts`: signature, issuer `treeps`, expiry, role must match the route domain: 401 `UNAUTHORIZED`, 403 `FORBIDDEN`); register is now `completeProfile` behind the guard, 200; a second call saves the new values again instead of `CONFLICT` (owner instruction); `registrationToken` code, `REGISTRATION_TOKEN_INVALID` and `OtpProviderNotBuiltError` removed; `GET /me` for rider and driver deferred until the driver submit-for-review step | Owner override of 2026-10-08 |
+| 2026-10-08 | Omitted email is kept (not wiped); a changed email resets `isEmailVerified`; email-unique race tested on real Postgres; known limit: the guard does not check account status (decision 168) | Owner instruction of 2026-10-08 (decision 167 amended) |
+| 2026-10-08 | City and state follow the email rule: sent means saved, omitted (or null / blank) keeps the stored value; clearing is not supported | Owner instruction of 2026-10-08 (decision 167 amended) |

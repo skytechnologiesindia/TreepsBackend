@@ -1,7 +1,6 @@
 import { RouteInputsError } from '../common/validation/route-inputs.js';
 import { DatabaseCheckError, DATABASE_CHECK_FAILED } from './database-check.js';
 import { EnvConfigError } from './env.validation.js';
-import { OTP_PROVIDER_NOT_BUILT, OtpProviderNotBuiltError } from './otp-provider-not-built.error.js';
 import { describeStartupFailure, refuseToStart, STARTUP_FAILED_LINE, type StartupIo } from './startup-failure.js';
 
 class Exited extends Error {
@@ -48,10 +47,6 @@ describe('describeStartupFailure', () => {
 
   it('RouteInputsError prints its own message (controller and handler names only)', () => {
     expect(describeStartupFailure(routeError)).toBe(routeError.message);
-  });
-
-  it('OtpProviderNotBuiltError prints its fixed message (a key name and constants only)', () => {
-    expect(describeStartupFailure(new OtpProviderNotBuiltError())).toBe(OTP_PROVIDER_NOT_BUILT);
   });
 
   it('DatabaseCheckError prints its fixed message', () => {

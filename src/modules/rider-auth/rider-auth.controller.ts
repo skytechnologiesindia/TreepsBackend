@@ -1,5 +1,8 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { OtpPurpose } from '@prisma/client';
+import { AuthUser } from '../../common/auth/auth-user.decorator.js';
+import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard.js';
+import type { AccessTokenClaims } from '../../common/jwt/access-token.service.js';
 import { RateLimit } from '../../common/rate-limit/rate-limit.decorator.js';
 import { RATE_LIMITS } from '../../config/rate-limits.js';
 import { SendOtpDto } from '../otp/dto/send-otp.dto.js';
@@ -27,7 +30,7 @@ export class RiderAuthController {
     return this.sendOtpService.sendOtp(OtpPurpose.RIDER_AUTH, dto.phoneNumber);
   }
 
-  // Public route (no login). Login for an ACTIVE rider, or a registration token for a new phone.
+  // Public route (no login). Login, or the account is created for a new phone (PROFILE_PENDING).
   // The limit is per phone (10 attempts an hour, counted from OtpSession.attempts in the service);
   // there is no per-IP limit on this route in the MVP (decision 121).
   @HttpCode(200)
@@ -36,12 +39,14 @@ export class RiderAuthController {
     return this.verifyOtpService.verifyOtp(dto);
   }
 
-  // Public route (no login): the one-time registration token from verify-otp is the credential.
-  // 10 requests per IP per hour. 201 because a Rider is created.
+  // Protected route: the access token from verify-otp is the credential. Completes the profile of the
+  // rider in the token; calling it again saves the new values. 200 because nothing is created.
+  // Guard order is JwtAuthGuard, then the IP limit (10 an hour): Nest runs the lower decorator first.
   @RateLimit({ name: 'register', ip: RATE_LIMITS.register.ip })
-  @HttpCode(201)
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.registerService.register(dto);
+  register(@AuthUser() user: AccessTokenClaims, @Body() dto: RegisterDto) {
+    return this.registerService.completeProfile(user.userId, dto);
   }
 }

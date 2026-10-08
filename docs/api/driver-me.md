@@ -1,6 +1,6 @@
 # GET /v1/driver/me
 
-Status: Draft, written on the owner's instruction of 2026-10-07 (decision 164); **not approved, not built.** Items marked TO DECIDE have no decision yet and must be resolved before the code that needs them is written (CLAUDE.md rule 12).
+Status: Draft, written on the owner's instruction of 2026-10-07 (decision 164); **not approved, not built: deferred until the driver submit-for-review step** (owner, 2026-10-08). Items marked TO DECIDE have no decision yet and must be resolved before the code that needs them is written (CLAUDE.md rule 12).
 
 The path `/v1/driver/me` is as instructed; the controller writes `@Controller('driver')` and never `v1`. Sibling docs: `driver-verify-otp.md`, `rider-me.md` (the JWT guard needs are written there and are the same, with role `DRIVER`).
 

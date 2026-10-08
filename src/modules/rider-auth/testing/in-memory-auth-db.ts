@@ -26,7 +26,8 @@ function matches(row: Row, where: Row): boolean {
     const value = row[key];
     if (condition === null) return value === null;
     if (condition instanceof Date || typeof condition !== 'object') return sameValue(value, condition);
-    const c = condition as { lt?: number | Date; gt?: number | Date };
+    const c = condition as { lt?: number | Date; gt?: number | Date; in?: unknown[] };
+    if (c.in !== undefined && !c.in.includes(value)) return false;
     const num = (x: unknown) => (x instanceof Date ? x.getTime() : (x as number));
     if (c.lt !== undefined && !(value !== null && num(value) < num(c.lt))) return false;
     if (c.gt !== undefined && !(value !== null && num(value) > num(c.gt))) return false;
@@ -104,6 +105,7 @@ export class InMemoryAuthDb {
       updateMany: async ({ where, data }: { where: Row; data: Row }) => {
         this.touch(`${name}.updateMany`, { where, data });
         const found = find(where);
+        if (name === 'rider' && data.email != null && found.length > 0 && rows().some((r) => r.email === data.email && !found.includes(r))) throw new UniqueViolation('Rider_email_key');
         for (const row of found) applyData(row, data);
         return { count: found.length };
       },

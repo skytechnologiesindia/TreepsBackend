@@ -49,11 +49,6 @@ export const ERROR_REGISTRY = {
     status: 503,
     message: "We couldn't reach the code service. Please try again.",
   },
-  REGISTRATION_TOKEN_INVALID: {
-    status: 422,
-    message:
-      'Your sign-up session has expired. Please verify your phone again.',
-  },
   EMAIL_IN_USE: { status: 409, message: 'This email is already in use.' },
 } as const satisfies Record<string, { status: number; message: string }>;
 

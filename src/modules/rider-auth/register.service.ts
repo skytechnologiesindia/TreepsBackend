@@ -1,19 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { OtpPurpose, RiderStatus, type OtpSession } from '@prisma/client';
+import { RiderStatus } from '@prisma/client';
 import { CLOCK, type Clock } from '../../common/clock.js';
 import { violatedUniqueIndex } from '../../common/database/unique-violation.js';
 import { AppException } from '../../common/errors/app.exception.js';
-import { newOpaqueToken, sha256Hex } from '../../common/tokens.js';
-import { REFRESH_TOKEN_TTL_SECONDS } from '../../config/tokens.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
 import type { RegisterDto } from './dto/register.dto.js';
 import { riderView, type RiderView } from './rider-view.js';
-import type { VerifyOtpResult } from './verify-otp.service.js';
 
-export interface RegisterResult {
+export interface CompleteProfileResult {
   rider: RiderView;
-  tokens: VerifyOtpResult['tokens'];
 }
 
 // A city or state is stored trimmed, or null when nothing is left (the one explicit normalization
@@ -28,110 +23,58 @@ export class RegisterService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly accessTokens: AccessTokenService,
   ) {}
 
-  // docs/api/rider-register.md, "Order of operations" (steps 3 to 6; the IP guard and validation
-  // already ran). No OTP and no provider call happen here.
-  async register(dto: RegisterDto): Promise<RegisterResult> {
+  // docs/api/rider-register.md, "Order of operations" (steps 4 to 6; the guards and validation already
+  // ran). The rider is the one in the access token. No OTP, no provider call, no new tokens.
+  async completeProfile(riderId: string, dto: RegisterDto): Promise<CompleteProfileResult> {
     const now = this.clock();
-    const tokenHash = sha256Hex(dto.registrationToken);
 
-    // 3. The session this token was issued for. One code for every way a token can be bad, so a
-    // reply never says which. Only a RIDER_AUTH session can register a rider.
-    const session = await this.prisma.otpSession.findUnique({ where: { registrationTokenHash: tokenHash } });
-    this.assertTokenUsable(session, now);
+    // 4. The caller. No row at all is a token for a rider that no longer exists.
+    const current = await this.prisma.rider.findUnique({ where: { id: riderId } });
+    if (!current) throw new AppException('UNAUTHORIZED');
 
-    // 4. Pre-checks, before the token is consumed, so a fixable mistake does not burn it.
-    if (dto.email !== undefined) {
-      const taken = await this.prisma.rider.findUnique({ where: { email: dto.email } });
-      if (taken) throw new AppException('EMAIL_IN_USE', { field: 'email' });
+    // 5. Pre-check, so a fixable mistake gets a clear answer before the write. The rider's own email
+    // is not a clash (a second call may send the same one again). The match is exact: the API only
+    // accepts lowercase emails, so A@x.com never gets this far (docs: rider-register.md, email rule).
+    const emailChanged = dto.email !== undefined && dto.email !== current.email;
+    if (emailChanged) {
+      const holder = await this.prisma.rider.findUnique({ where: { email: dto.email } });
+      if (holder && holder.id !== riderId) throw new AppException('EMAIL_IN_USE', { field: 'email' });
     }
-    const phoneNumber = session!.phoneNumber;
-    if (await this.prisma.rider.findUnique({ where: { phoneNumber } })) throw new AppException('CONFLICT');
 
-    // 5. One transaction: consume the token, create the Rider, the Device and the first refresh
-    // token. It is all-or-nothing, so a failure leaves the token usable.
-    const refreshToken = newOpaqueToken();
-    let rider;
+    const city = trimmedOrNull(dto.registeredCity);
+    const state = trimmedOrNull(dto.registeredState);
+
+    // 6. One conditional update. PROFILE_PENDING becomes ACTIVE; an ACTIVE rider calling again just
+    // saves the new values. A banned or deleted rider matches no row. An omitted email stays as it
+    // was; a different one is unproven again, so isEmailVerified goes back to false.
+    let updated;
     try {
-      rider = await this.prisma.$transaction(async (tx) => {
-        // The single-use step: only one request can turn consumedAt from empty to set while the
-        // token is still unexpired. A parallel request waits for the first to finish, then matches
-        // no row.
-        const consumed = await tx.otpSession.updateMany({
-          where: { id: session!.id, registrationTokenHash: tokenHash, consumedAt: null, registrationExpiresAt: { gt: now } },
-          data: { consumedAt: now },
-        });
-        if (consumed.count === 0) throw new AppException('REGISTRATION_TOKEN_INVALID', { field: 'registrationToken' });
-
-        const created = await tx.rider.create({
-          data: {
-            phoneNumber,
-            fullName: dto.fullName,
-            email: dto.email ?? null,
-            registeredCity: trimmedOrNull(dto.registeredCity),
-            registeredState: trimmedOrNull(dto.registeredState),
-            status: RiderStatus.ACTIVE,
-            isPhoneVerified: true,
-            isEmailVerified: false,
-            isProfileComplete: false,
-            lastLoginAt: now, // registration counts as the first login
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
-        await tx.device.create({
-          data: {
-            riderId: created.id,
-            deviceId: dto.device.deviceId,
-            platform: dto.device.platform,
-            appVersion: dto.device.appVersion,
-            fcmToken: dto.device.fcmToken ?? null,
-            lastSeenAt: now,
-          },
-        });
-        await tx.refreshToken.create({
-          data: {
-            tokenHash: sha256Hex(refreshToken),
-            riderId: created.id,
-            deviceId: dto.device.deviceId,
-            expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1000),
-            createdAt: now,
-          },
-        });
-        return created;
+      updated = await this.prisma.rider.updateMany({
+        where: { id: riderId, status: { in: [RiderStatus.PROFILE_PENDING, RiderStatus.ACTIVE] } },
+        data: {
+          fullName: dto.fullName,
+          ...(emailChanged ? { email: dto.email, isEmailVerified: false } : {}),
+          // Like email: sent means saved, omitted keeps the stored value. A null or blank value is
+          // treated as not sent (clearing a field is not supported yet).
+          ...(city !== null ? { registeredCity: city } : {}),
+          ...(state !== null ? { registeredState: state } : {}),
+          status: RiderStatus.ACTIVE,
+          isProfileComplete: true,
+          updatedAt: now,
+        },
       });
     } catch (error) {
-      // A parallel registration took the email or the phone after the pre-checks. The whole
-      // transaction rolled back, including consumedAt, so the token is still usable.
-      const index = violatedUniqueIndex(error);
-      if (index === 'email') throw new AppException('EMAIL_IN_USE', { field: 'email' });
-      if (index === 'phoneNumber') throw new AppException('CONFLICT');
+      // Another rider took the email after the pre-check (the unique index decides the race).
+      if (violatedUniqueIndex(error) === 'email') throw new AppException('EMAIL_IN_USE', { field: 'email' });
       throw error;
     }
+    if (updated.count === 0) throw new AppException('ACCOUNT_BANNED'); // SUSPENDED, BLOCKED or DELETED
 
-    // 6. Sign the access token (same signer as verify-otp) and reply.
-    const access = this.accessTokens.issue({ riderId: rider.id, deviceId: dto.device.deviceId, now });
-    return {
-      rider: riderView(rider),
-      tokens: {
-        accessToken: access.token,
-        accessTokenExpiresInSeconds: access.expiresInSeconds,
-        refreshToken,
-        refreshTokenExpiresInSeconds: REFRESH_TOKEN_TTL_SECONDS,
-      },
-    };
-  }
-
-  private assertTokenUsable(session: OtpSession | null, now: Date): void {
-    const usable =
-      session !== null &&
-      session.purpose === OtpPurpose.RIDER_AUTH &&
-      session.verifiedAt !== null &&
-      session.consumedAt === null &&
-      session.registrationExpiresAt !== null &&
-      session.registrationExpiresAt.getTime() > now.getTime();
-    if (!usable) throw new AppException('REGISTRATION_TOKEN_INVALID', { field: 'registrationToken' });
+    // 7. Read the rider back and reply.
+    const rider = await this.prisma.rider.findUnique({ where: { id: riderId } });
+    if (!rider) throw new AppException('UNAUTHORIZED');
+    return { rider: riderView(rider) };
   }
 }
