@@ -58,6 +58,7 @@ Success: **HTTP 200** (the Rider already exists, so nothing is created; the earl
 | rider.isPhoneVerified | boolean | n/a | Always | `true` | Confirms the phone was proven | Boolean | Derived | None |
 | rider.isEmailVerified | boolean | n/a | Always | `false` (nothing verifies an email in the MVP) | App knows the email is not yet proven | Boolean | Derived | App trusts an unverified email |
 | rider.isProfileComplete | boolean | n/a | Always | `false` from verify-otp until this call; `true` after it | App chooses its screen | Boolean | Derived | App skips or repeats the profile screen |
+| rider.createdAtIst | string | `dd-mm-yyyy HH:mm:ss`, India time | Always | Example `"07-10-2026 19:23:10"` for `2026-10-07T13:53:10.203Z`. Added by the serializer step (`response-format.md` section 8); additive, so apps bound to `createdAt` keep working and need not format | Display in India | Text | Derived | Wrong time shown |
 | rider.createdAt | string | ISO UTC `YYYY-MM-DDTHH:mm:ss.sssZ` | Always | n/a | Member since | UTC per `api-standard.md`; the apps and admin show IST `DD-MM-YYYY HH:MM:SS` | Derived | Wrong "member since" |
 
 Never in the reply: `deletedAt`, `lastLoginAt`, any token or hash, any internal row id other than `rider.id`.
@@ -319,7 +320,7 @@ Until then there is no way to suspend or block a rider through the API.
 - Rate limit: the 11th call from one IP in an hour is `RATE_LIMITED`.
 - End to end: send-otp, verify-otp (new phone) gives tokens and a `PROFILE_PENDING` rider, `GET /v1/rider/me` says pending, register with the access token, `GET /v1/rider/me` says `ACTIVE`; then logout and a second verify-otp returns `isNewRider` false and status `ACTIVE`.
 - Secrets: no token, hash or phone in any log line.
-- Time: stored timestamps are UTC instants; `rider.createdAt` is ISO UTC.
+- Time: stored timestamps are UTC instants; `rider.createdAt` is ISO UTC and `rider.createdAtIst` is its India-time twin.
 
 ## Race tests (real Postgres)
 `src/modules/rider-auth/register.pg.spec.ts` was written for the registration-token design and must be rewritten for the cases above (scratch database `treeps_scratch_register`, only with `RUN_PG_TESTS=1`, as before; the scratch-database safety rules do not change). The new verify-otp race (two simultaneous verifies for a new phone create exactly one Rider) belongs to `rider-verify-otp.md`.

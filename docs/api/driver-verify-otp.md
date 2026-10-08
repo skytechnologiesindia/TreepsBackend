@@ -40,6 +40,7 @@ Success: HTTP 200 in both cases (TO DECIDE: a new driver is created, so 201 woul
 | driver.id | string (UUID) | n/a | Always | n/a | The driver's id for later calls | Ids are UUIDs | Identity | App cannot refer to the driver |
 | driver.phoneNumber | string | E.164 | Always | as stored | Shown in the app | E.164 | Identity | Wrong number shown |
 | driver.status | string | enum | Always | `DriverStatus` value (a new driver is `DOCUMENTS_PENDING`) | App decides what the driver may do next | Enum, uppercase | Derived | App shows an approved driver as pending |
+| driver.createdAtIst | string | `dd-mm-yyyy HH:mm:ss`, India time | Always | Example `"07-10-2026 19:23:10"` for `2026-10-07T13:53:10.203Z`. Added by the serializer step (`response-format.md` section 8); additive, so apps bound to `createdAt` keep working and need not format | Display in India | Text | Derived | Wrong time shown |
 | driver.createdAt | string | ISO UTC `YYYY-MM-DDTHH:mm:ss.sssZ` | Always | n/a | Member since | UTC per `api-standard.md` | Derived | Wrong "member since" |
 | tokens.accessToken | string | JWT | Always | valid 15 minutes, `role` claim `DRIVER` | Authenticates later calls | JWT, stateless | Derived | Driver cannot call APIs |
 | tokens.accessTokenExpiresInSeconds | integer | seconds | Always | 900 | App schedules the refresh | Seconds | Reference (config) | App uses a dead token |
@@ -129,7 +130,7 @@ All errors use the envelope in `standards/response-format.md`. Same codes and wo
 - The rider route could not tell a driver token from a rider token if a guard ignored `role`. The JWT guard (F4) must check `role` against the route's domain.
 
 ## Required tests
-- New phone: the driver is created `DOCUMENTS_PENDING` with `isPhoneVerified` true; one DriverDevice; one DriverRefreshToken storing only the SHA-256 hash; the session has `verifiedAt` and `consumedAt`; the reply has `isNewDriver` true, `driver` with exactly `id`, `phoneNumber`, `status`, `createdAt`, tokens, and no registration token.
+- New phone: the driver is created `DOCUMENTS_PENDING` with `isPhoneVerified` true; one DriverDevice; one DriverRefreshToken storing only the SHA-256 hash; the session has `verifiedAt` and `consumedAt`; the reply has `isNewDriver` true, `driver` with exactly `createdAtIst` (the Indian-time twin of `createdAt`) and `id`, `phoneNumber`, `status`, `createdAt`, tokens, and no registration token.
 - Existing driver: login, `isNewDriver` false, `lastLoginAt` set, no second Driver.
 - SUSPENDED, BLOCKED and DELETED: `ACCOUNT_BANNED` (403), no tokens, no device, session finished.
 - Code: wrong gives `OTP_INVALID`, expired gives `OTP_EXPIRED`, used gives `OTP_INVALID`.

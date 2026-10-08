@@ -52,7 +52,7 @@ Rate limit: TO DECIDE. Log: `requestId`, code, status; never the phone or token.
 - Happy path: a new driver gets `DOCUMENTS_PENDING`; after the status is changed in the database the call shows the new status.
 - Auth: no token, bad signature, expired and `alg: none` give `UNAUTHORIZED`; a `RIDER` token gives `FORBIDDEN`; a token for a deleted driver id gives `UNAUTHORIZED`.
 - Isolation: a driver reads only their own row.
-- Shape: exactly `id`, `phoneNumber`, `status`, `createdAt`; no profile flag.
+- Shape: exactly `id`, `phoneNumber`, `status`, `createdAt`, `createdAtIst`; no profile flag.
 - Envelope: standard envelope, served only under `/v1`.
 
 ## Changelog

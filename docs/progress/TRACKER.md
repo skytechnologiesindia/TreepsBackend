@@ -71,6 +71,8 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 
 Admin visibility (CLAUDE.md): `GET /v1/admin/riders`, `GET /v1/admin/riders/:id`, `GET /v1/admin/metrics/riders` (proposed in `api/rider-register.md`). **Exception proposed in decision 119: the rider auth routes ship before admin auth.** The admin endpoints wait for admin authentication (no admin model or guard exists) and for the pagination shape (TO DECIDE).
 
+- [x] Indian-time twins (decision 166, 2026-10-08): `IstTwinInterceptor` adds `<key>Ist` next to every Date / full ISO date-time in success replies; docs and tests updated. Rider and driver `me` docs list `createdAtIst`
+
 ### Redesign 2026-10-07: verify once, finish the profile later (decisions 162 to 165)
 Docs updated, **code not changed, owner approval pending**: `api/rider-verify-otp.md`, `rider-register.md` (now authenticated complete-profile), new `rider-me.md` and `driver-me.md`, `standards/response-format.md`, `rider-send-otp.md`.
 - [ ] Owner approves the redesign docs and answers the TO DECIDE items (route rename, 200 vs 201, email required, `PROFILE_PENDING` as column default, drop the two `OtpSession` columns, `/me` banned behaviour, guard global vs per route, abandoned-row cleanup)

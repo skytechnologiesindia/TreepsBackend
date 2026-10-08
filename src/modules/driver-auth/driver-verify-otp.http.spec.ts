@@ -89,7 +89,7 @@ describe('POST /v1/driver/auth/verify-otp', () => {
     expect(reply.requestId).toBe(res.headers.get('x-request-id'));
     expect(Object.keys(reply.data).sort()).toEqual(['driver', 'isNewDriver', 'tokens']);
     expect(reply.data.isNewDriver).toBe(true);
-    expect(reply.data.driver).toEqual({ id: ctx.db.tables.driver[0].id, phoneNumber: PHONE, status: 'DOCUMENTS_PENDING', createdAt: '2026-10-05T10:00:00.000Z' });
+    expect(reply.data.driver).toEqual({ id: ctx.db.tables.driver[0].id, phoneNumber: PHONE, status: 'DOCUMENTS_PENDING', createdAt: '2026-10-05T10:00:00.000Z', createdAtIst: '05-10-2026 15:30:00' });
     expect(Object.keys(reply.data.tokens).sort()).toEqual(['accessToken', 'accessTokenExpiresInSeconds', 'refreshToken', 'refreshTokenExpiresInSeconds']);
     expect(verifyHs256Jwt(reply.data.tokens.accessToken, SECRET, T0 / 1000)).toMatchObject({ role: 'DRIVER', sub: reply.data.driver.id });
   });

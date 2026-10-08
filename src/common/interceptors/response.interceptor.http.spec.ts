@@ -35,6 +35,11 @@ class TestController {
     return { message: 'hi', statusCode: 999, data: { x: 1 } };
   }
 
+  @Get('times')
+  times() {
+    return { at: new Date('2026-10-07T13:53:10.203Z'), text: 'On 2026-10-07T13:53:10.203Z', day: '2026-10-07', gone: null, list: [{ at: '2026-10-07T13:53:10.203Z' }] };
+  }
+
   @Get('boom')
   boom(): never {
     throw new Error('secret-db-password-xyz');
@@ -107,6 +112,27 @@ describe('ResponseInterceptor over real HTTP', () => {
     const body = await res.json();
     expect(Object.keys(body)).toEqual(['success', 'data', 'requestId']);
     expect(body.data).toEqual({ message: 'hi', statusCode: 999, data: { x: 1 } });
+  });
+
+  it('adds the Indian-time twin inside data, keeps the ISO value, and keeps the envelope keys', async () => {
+    const res = await fetch(`${baseUrl}/times`);
+    const body = await res.json();
+    expect(Object.keys(body)).toEqual(['success', 'data', 'requestId']);
+    expect(body.data).toEqual({
+      at: '2026-10-07T13:53:10.203Z',
+      atIst: '07-10-2026 19:23:10',
+      text: 'On 2026-10-07T13:53:10.203Z', // free text is not touched
+      day: '2026-10-07', // a date-only string gets no twin
+      gone: null,
+      list: [{ at: '2026-10-07T13:53:10.203Z', atIst: '07-10-2026 19:23:10' }],
+    });
+  });
+
+  it('error replies carry no twins', async () => {
+    const res = await fetch(`${baseUrl}/boom`);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(JSON.stringify(body)).not.toContain('Ist');
   });
 
   it('puts the same requestId in the body and in the X-Request-Id header (GET and POST)', async () => {

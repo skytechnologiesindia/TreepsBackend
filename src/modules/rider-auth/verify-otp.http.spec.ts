@@ -149,6 +149,11 @@ describe('POST /v1/rider/auth/verify-otp', () => {
       expect(reply.data.rider).toMatchObject({ fullName: null, email: null, status: 'PROFILE_PENDING', isPhoneVerified: true, isProfileComplete: false });
       expect(reply.data.tokens.accessToken.split('.')).toHaveLength(3);
       expect(reply.data.tokens.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      // every date-time carries its Indian-time twin; the ISO value is unchanged
+      expect(reply.data.rider.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(reply.data.rider.createdAtIst).toBe('05-10-2026 15:30:00'); // 2026-10-05T10:00:00.000Z is 15:30 in India
+      expect(reply.data.rider.createdAtIst).toMatch(/^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/);
+      expect(Object.keys(reply)).toEqual(['success', 'data', 'requestId']);
       expect(reply.data).not.toHaveProperty('registrationToken');
       expect(reply.data).not.toHaveProperty('profileComplete');
       expect(ctx.db.tables.rider).toHaveLength(1);

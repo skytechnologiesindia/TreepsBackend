@@ -36,6 +36,8 @@ Success: HTTP 200 in both cases (TO DECIDE: a new rider row is created, so 201 w
 | rider | object | n/a | Always | Same fields as `rider` in `rider-register.md` Response fields (`fullName` and `email` are null and `status` is `PROFILE_PENDING` until the profile is completed) | App shows the rider and picks its screen | Same object everywhere | Derived | Inconsistent profile |
 | tokens | object | n/a | Always | `tokens.accessToken` (JWT, 15 min), `tokens.accessTokenExpiresInSeconds` (900), `tokens.refreshToken` (opaque, 30 days), `tokens.refreshTokenExpiresInSeconds` (2592000); rules in `rider-register.md` Derived values | Authenticates later calls, including `register` | Same object everywhere | Derived | Rider cannot call APIs |
 
+Every date-time in `rider` also has its Indian-time twin (`rider.createdAtIst`, for example `"07-10-2026 19:23:10"`), added by the central serializer step of `response-format.md` section 8; it is additive.
+
 There is **no** `registrationToken`, no `registrationTokenExpiresInSeconds` and no top-level `profileComplete`: the profile flag is `rider.isProfileComplete`.
 
 Never in the reply: the provider session id, `attempts`, any token hash, the rider's `deletedAt` or `lastLoginAt`.

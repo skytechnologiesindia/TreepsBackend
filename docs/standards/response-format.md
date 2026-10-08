@@ -13,8 +13,8 @@ Every reply from the API, success or error, uses exactly one of two shapes.
 }
 ```
 - `data` holds the API's result. The shape of `data` is documented in each API doc.
-- The handler's return value is wrapped as is. The wrapper never unwraps or reads it, so a handler that returns `{ "data": ..., "message": ... }` gets that whole object under `data`.
-- A success with no result (`undefined`) returns `"data": null`. Every other value (object, array, string, number, boolean, null) goes into `data` unchanged.
+- The handler's return value is wrapped as is. The wrapper never unwraps or reads it, so a handler that returns `{ "data": ..., "message": ... }` gets that whole object under `data`. The one step that may change `data` is the separate Indian-time serializer in section 8, which runs before the wrapper and only adds `<key>Ist` keys.
+- A success with no result (`undefined`) returns `"data": null`. Every other value (object, array, string, number, boolean, null) goes into `data` as the handler returned it, plus the `<key>Ist` twins of section 8.
 - The wrapper never changes the HTTP status. It is Nest's default (200, or 201 for POST) unless the API doc sets another. 204 is not used; an API with nothing to return replies 200 with `data: null`.
 - List results and pagination: where the page information goes is TO DECIDE.
 - The success HTTP status (200, 201) is documented per API.
@@ -123,9 +123,23 @@ Where the registry lives in code: `src/common/errors/error-registry.ts`. Control
 10. **`field` is the request field name as the client sent it, or null; `details` exists only on INVALID_INPUT.** Why: the app can highlight the exact inputs without parsing text, and every other error stays small and predictable.
 11. **Messages never contain internal details or another user's data.** Why: replies reach the rider's phone and any network in between.
 12. **Error logs never contain request URLs, methods, bodies or headers.** Why: they can hold phone numbers and tokens.
-13. **The success wrapper always wraps what a handler returns and never unwraps or reads it.** Why: the shape of a reply must never depend on what a handler happens to return.
+13. **The success wrapper always wraps what a handler returns and never reads `data`. The only change allowed to `data` is the serializer step of section 8, which adds `<key>Ist` twins of date-time values. The envelope keys stay `success`, `data`, `requestId`.** Why: the shape of a reply must never depend on what a handler happens to return; the twins are the one documented, additive exception (decision 166).
 14. **No 204 responses; an API with nothing to return replies 200 with `data: null`.** Why: a 204 cannot carry a body, so the envelope would be lost.
 15. **Controllers never use `@Res()`, and never return a `StreamableFile` or other raw stream, without the owner's approval.** Why: both bypass or break the envelope.
+
+## 8. Indian-time twins (decision 166)
+Wherever a success reply carries a date-time, it also carries the Indian-time version next to it. The ISO value stays exactly as it is; the Indian one is added under the key `<key>Ist`.
+
+```json
+{ "createdAt": "2026-10-07T13:53:10.203Z", "createdAtIst": "07-10-2026 19:23:10" }
+```
+- **Format:** `dd-mm-yyyy HH:mm:ss`, 24-hour, timezone Asia/Kolkata (UTC+05:30, no daylight saving). Seconds are cut, not rounded. Apps do not need to format.
+- **Where it is done:** once, centrally, by `IstTwinInterceptor` (`src/common/interceptors/ist-twin.interceptor.ts`). It is registered after the response wrapper, so it is the inner one: it runs on what the handler returned, before the wrapper wraps it. The wrapper stays untouched. No endpoint writes its own `*Ist` field.
+- **What gets a twin:** a value under any object key that is a real `Date`, or a string that is a full ISO date-time (date, `T`, time, and `Z` or an offset). **Key names are never used.** A string under `createdAt` that is not a date-time gets no twin.
+- **What does not:** a date-only string (`2026-10-07`), a time without a zone, an impossible date (13th month, 31 February), free text that merely contains a date, numbers, booleans, and values that are not directly under an object key (a bare string at the top level or inside an array of strings). **A `null` stays `null` and gets no twin**, because without key names there is no way to know that a null was a date.
+- **Nested objects and arrays** are handled. Existing keys are never overwritten: if `<key>Ist` already exists it is left alone.
+- **Not changed:** error replies (they do not pass through the step), request bodies, and the stored data. Dates still go on the wire and into the database as UTC.
+- **Additive:** the new keys only add fields. An app already bound to `createdAt` keeps working; apps with strict parsing must tolerate unknown keys.
 
 ## Current code vs this format
 F3.2 is done. The request id middleware, the error registry with `AppException`, the exception filter and the response interceptor are implemented and registered through `setupApp`. The HTTP contract tests are in `src/common/contract.http.spec.ts`.
@@ -146,3 +160,4 @@ F3.2 is done. The request id middleware, the error registry with `AppException`,
 | 2026-10-05 | 503 confirmed for OTP_PROVIDER_ERROR and added to the allowed statuses (section 4) | Owner decision 130 |
 | 2026-10-07 | Removed REGISTRATION_TOKEN_INVALID from the registry table (no route uses it after the redesign; the registry would have 18 codes; the code row and its spec still exist until the code step) | Owner instruction of 2026-10-07 (decision 162) |
 | 2026-10-08 | Put REGISTRATION_TOKEN_INVALID back in the registry table until the old register route is replaced (the code still throws it and the registry spec compares code and doc); it is removed with that step (decision 162) | verify-otp redesign step |
+| 2026-10-08 | Section 8: `<key>Ist` Indian-time twins added to success `data` by a separate serializer step; wrapper sentences and rule 13 amended | Owner instruction of 2026-10-08 (decision 166) |

@@ -22,7 +22,7 @@ Rider app. **Protected endpoint:** needs an access token with `role` `RIDER`. Ga
 None. No body and no query parameters. A body or a query string is ignored (TO DECIDE: reject unknown query keys with `UNKNOWN_FIELD`, as `input-validation.md` does for bodies). The rider is identified only by the `sub` claim of the token; there is no id in the path, so a rider can never read another rider.
 
 ## Response fields
-HTTP 200. `data` is `{ rider }`, **the same `rider` object** as in `rider-register.md` Response fields (id, fullName or null, phoneNumber, email or null, registeredCity, registeredState, status, isPhoneVerified, isEmailVerified, isProfileComplete, createdAt). No new shape. Never in the reply: `deletedAt`, `lastLoginAt`, tokens or hashes.
+HTTP 200. `data` is `{ rider }`, **the same `rider` object** as in `rider-register.md` Response fields (id, fullName or null, phoneNumber, email or null, registeredCity, registeredState, status, isPhoneVerified, isEmailVerified, isProfileComplete, createdAt). No new shape (`createdAtIst` comes with it, `response-format.md` section 8). Never in the reply: `deletedAt`, `lastLoginAt`, tokens or hashes.
 
 ## Derived values
 Everything is read from the `Rider` row. The status shown is the live database value, not a claim in the token, so a ban shows here at once even though an already-issued access token still passes the guard for up to 15 minutes (decision 144).
