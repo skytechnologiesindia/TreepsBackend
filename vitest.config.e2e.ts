@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
@@ -7,6 +7,8 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    // The real-Postgres smoke test has its own command (npm run e2e:rider).
+    exclude: [...configDefaults.exclude, 'test/e2e/**'],
     // Booting the real application under load can pass the 5 s default. A longer limit removes
     // that flakiness without hiding real failures. No retries: they would hide real bugs.
     testTimeout: 15000,
