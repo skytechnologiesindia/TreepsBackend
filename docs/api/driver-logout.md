@@ -1,51 +1,48 @@
 # POST /v1/driver/auth/logout
 
-Status: BUILT 2026-10-09 on the owner's instruction (M6, driver only; decisions 170 to 173). Items marked TO DECIDE have no decision yet. A change after approval needs a changelog row. **The rider logout (`rider-logout.md`) is not built and not changed by this doc; riders stay deferred.**
+Status: BUILT 2026-10-09 on the owner's instruction (server-side sessions, decisions 174 to 178). Replaces the refresh-token logout built earlier the same day. Items marked TO DECIDE have no decision yet. A change after approval needs a changelog row.
 
-The controller writes `@Controller('driver/auth')` and never `v1`. Sibling docs: `driver-verify-otp.md`, `driver-refresh.md`, `rider-logout.md` (the rider design, deferred).
+The controller writes `@Controller('driver/auth')` and never `v1`. Sibling docs: `driver-verify-otp.md`, `rider-logout.md`.
 
 ## Purpose
-The driver logs out on this device. The server deletes that device's session (the `DriverDevice` row and all its refresh tokens) so no refresh token of it can be exchanged again, and its push token is forgotten.
+The driver logs out on this device. The server deletes this device's session, so the token stops working at once. A driver has one active session (decision 174), so this normally leaves no session at all.
 
 ## Who calls it
-Driver app, from the logout button. **Public route:** the refresh token is the credential, so it works with an expired access token. No JWT guard.
+Driver app, from the logout button. **Protected route:** it needs the session token (`Authorization: Bearer <token>`). Gate checks: session guard (token known and unexpired, role `DRIVER`, account not banned), throttler guard (IP). There is no body.
 
 ## Request fields
-Body, JSON. Nothing else is accepted; unknown fields are `UNKNOWN_FIELD`.
-
-| Name | Type | Unit | Required? | Allowed range | Why it exists | Why this type/unit | Bucket | What breaks if wrong |
-|---|---|---|---|---|---|---|---|---|
-| refreshToken | string | opaque text | Required | 1 to 512 characters, no U+0000. Any non-empty string is accepted: an unknown or malformed one is still a 200. A missing value, `""` or a non-string is `INVALID_INPUT` | Identifies which device's session to end and proves the caller holds it | Opaque random value | Identity | Anyone could log out anyone |
+None. The route reads no body and no query. The driver id and the device id come from the session.
 
 ## Response fields
-Success: **HTTP 200**, `data` is `{ loggedOut: true }`. The reply is identical whether or not the token was known, so the call cannot be used to test tokens. No date-time field.
+Success: **HTTP 200**, `data` is `{ loggedOut: true }`. No date-time field.
 
 ## Order of operations
-1. Throttler guard (IP): 120 per IP per hour (decision 137), counter name `driver-logout`.
-2. Validate the body.
-3. Hash the token and look up the `DriverRefreshToken` row by `tokenHash`. **Any** row counts, including an already-rotated or expired one: it still names a device.
-4. If found: in one transaction delete every `DriverRefreshToken` row of that `(driverId, deviceId)` and then the `DriverDevice` row. If not found: nothing.
-5. Reply 200 `{ loggedOut: true }`.
+1. Session guard: `UNAUTHORIZED` (no token, unknown token, expired), `FORBIDDEN` (a rider session), `ACCOUNT_BANNED` (and all sessions of the driver are deleted).
+2. Throttler guard (IP): 120 per IP per hour (decision 137), counter name `driver-logout`. The guard runs first, so a refused token does not use up the limit.
+3. Delete the session of this driver and device (`SessionService.deleteForDevice`).
+4. Reply 200 `{ loggedOut: true }`.
 
 ## State changes
-Before: a device with its tokens. After: none of them. **Idempotent:** calling again, or with an unknown token, changes nothing and still gives 200. After logout a refresh with that token is `REFRESH_TOKEN_INVALID`. The access token already issued keeps working until it expires (max 15 minutes, decision 173).
+Before: the driver's session row. After: none. Calling again with the same token is `UNAUTHORIZED` (401), like any guarded route. The `DriverDevice` row (and its push token) is kept.
 
 ## Errors
 | Code | HTTP status | When it happens | `field` | Message | How the app reacts |
 |---|---|---|---|---|---|
-| INVALID_INPUT | 400 | Missing, empty or wrong-type `refreshToken`, or an unknown field | first invalid field | "Please check your input." | Fix the request |
+| UNAUTHORIZED | 401 | No `Authorization: Bearer` header, an unknown or expired token (including one already logged out, or replaced by a login on another phone) | null | "Please log in again." | Treat as logged out: clear the stored token |
+| FORBIDDEN | 403 | A rider session | null | "You don't have access to this." | Treat as a bug |
+| ACCOUNT_BANNED | 403 | The driver is SUSPENDED, BLOCKED or DELETED (all their sessions are deleted) | null | "This account can't book rides." | Show support contact |
 | RATE_LIMITED | 429 | More than 120 calls per hour from one IP | null | "Too many requests. Try again shortly." | Retry later |
 | INTERNAL_ERROR | 500 | A bug or database failure | null | "Something went wrong. Please try again." | Retry |
 
 ## Edge cases and known limitations
-- Someone holding an old, already-rotated token of the device can log that device out. They would need the secret 256-bit value, so this is no weaker than holding the live token.
-- Logout leaves the driver's other data alone (the `Driver` row, status, documents). Because a driver has one device, logout normally leaves no session at all.
+- A driver who logs in on another phone has already lost this session, so a later logout here is 401. The app clears its token.
 - Log: `requestId`, status. Never the token or its hash.
 
 ## Required tests
-Built in `src/modules/driver-auth/driver-session.http.spec.ts` and e2e cases 35 and 36: 200 `{ loggedOut: true }` with no Authorization header; the device and token rows are gone and refresh then gives 401; repeat, unknown, garbage, rotated-token and other-driver cases; missing or non-string token is 400; unknown field is `UNKNOWN_FIELD`.
+Built in `driver-session.http.spec.ts` and e2e cases 27 to 29 and 33: 200 `{ loggedOut: true }` in the envelope; the token is dead afterwards; no token, unknown token 401; a rider token 403; a banned driver 403 with the session deleted; a login on a second phone kills the first phone's session at once.
 
 ## Changelog
 | Date | What changed | Why |
 |---|---|---|
-| 2026-10-09 | Built (driver only): route, idempotent session delete | M6 driver, owner instruction (decisions 170 to 173) |
+| 2026-10-09 | Built as a public refresh-token logout (always 200) | M6 driver (decisions 170 to 173) |
+| 2026-10-09 | **Redesigned:** guarded by the session token, no body, 401 for an unknown token | Server-side sessions (decisions 174 to 178) |

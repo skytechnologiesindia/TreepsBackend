@@ -71,7 +71,7 @@ These codes cannot occur in L0 because nothing checks for them yet: OUT_OF_SERVI
 A rider chooses a pickup and a drop. This API returns, for each tier, whether it is available, the pickup ETA and the exact fare, plus a quote id the rider can later book against. It lets the rider see the price before requesting a ride.
 
 ## Who calls it
-Rider app. Auth: token (real JWT arrives in F4). Role: RIDER.
+Rider app. Auth: session token (the session guard exists; putting it on this route is TO DECIDE). Role: RIDER.
 
 ## Request fields
 All request fields are bucket **Input**. The body may contain only these fields; unknown fields are rejected.

@@ -2,7 +2,7 @@
 
 Status: Draft, written on the owner's instruction of 2026-10-07 (decision 164); **not approved, not built: deferred until the driver submit-for-review step** (owner, 2026-10-08). Items marked TO DECIDE have no decision yet and must be resolved before the code that needs them is written (CLAUDE.md rule 12).
 
-The path `/v1/driver/me` is as instructed; the controller writes `@Controller('driver')` and never `v1`. Sibling docs: `driver-verify-otp.md`, `rider-me.md` (the JWT guard needs are written there and are the same, with role `DRIVER`).
+The path `/v1/driver/me` is as instructed; the controller writes `@Controller('driver')` and never `v1`. Sibling docs: `driver-verify-otp.md`, `rider-me.md` (the gate is the session guard, built; role `DRIVER`).
 
 ## Purpose
 The driver app calls this after it starts to learn which screen to show. The driver account is already created by `driver-verify-otp.md` (status `DOCUMENTS_PENDING`), so there is no profile step to wait for; the screen choice comes from `status`:
@@ -18,7 +18,7 @@ The driver app calls this after it starts to learn which screen to show. The dri
 **The profile-complete flag:** the `Driver` table has no `isProfileComplete` column and no driver profile exists yet, so the reply has **no such flag**. Whether to add one when the driver profile and documents are designed, or to derive it from `status`: TO DECIDE. The app switches on `status` only. The mapping above is the app's; the server only reports the status.
 
 ## Who calls it
-Driver app. **Protected endpoint:** needs an access token with `role` `DRIVER`. Gate checks: JWT guard (see `rider-me.md`, Gate), throttler (TO DECIDE).
+Driver app. **Protected endpoint:** needs a session token with role `DRIVER`. Gate checks: session guard (see `rider-me.md`, Gate), throttler (TO DECIDE).
 
 ## Request fields
 None. No body and no query parameters. The driver is identified only by the token's `sub`; there is no id in the path.
@@ -27,10 +27,10 @@ None. No body and no query parameters. The driver is identified only by the toke
 HTTP 200. `data` is `{ driver }`, **the same `driver` object** as in `driver-verify-otp.md` Response fields: `id`, `phoneNumber`, `status`, `createdAt`. No new shape. Never in the reply: `isPhoneVerified`, `lastLoginAt`, `deletedAt`, tokens or hashes.
 
 ## Derived values
-Read from the `Driver` row. The status is the live database value, not a token claim, so a ban shows at once even though an issued access token still passes the guard for up to 15 minutes (decision 144).
+Read from the `Driver` row. The status is the live database value, not a token claim, and a ban is already enforced by the guard (decision 176).
 
 ## Order of operations
-1. JWT guard: valid token, role `DRIVER`.
+1. Session guard: valid session, role `DRIVER`, account not banned.
 2. Throttler guard.
 3. Load the Driver by the token's `sub`. No row: `UNAUTHORIZED`.
 4. Reply 200 with `driverView(row)`. SUSPENDED, BLOCKED and DELETED drivers are **not** refused (the app needs the status); TO DECIDE as in `rider-me.md`.
@@ -59,3 +59,4 @@ Rate limit: TO DECIDE. Log: `requestId`, code, status; never the phone or token.
 | Date | What changed | Why |
 |---|---|---|
 | 2026-10-07 | Draft created (not built); no profile flag because the Driver has none | Owner instruction of 2026-10-07 (decision 164) |
+| 2026-10-09 | Auth is now a server-side session (decisions 174 to 178); still deferred until the driver submit-for-review step | Server-side sessions |

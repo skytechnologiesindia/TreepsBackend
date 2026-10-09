@@ -2,12 +2,12 @@
 
 Status: APPROVED (owner, 2026-10-05). Items still marked TO DECIDE must be resolved in this doc before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row.
 
-Part of one phone-OTP flow with four sibling docs: `rider-verify-otp.md`, `rider-register.md`, `rider-refresh.md`, `rider-logout.md`. All paths are `/v1/rider/auth/<name>` (APPROVED). The `/v1` prefix is added by `setupApp`; the controller writes `@Controller('rider/auth')` and never `v1`.
+Part of one phone-OTP flow with four sibling docs: `rider-verify-otp.md`, `rider-register.md`, `rider-logout.md`. All paths are `/v1/rider/auth/<name>` (APPROVED). The `/v1` prefix is added by `setupApp`; the controller writes `@Controller('rider/auth')` and never `v1`.
 
 ```
 send-otp -> verify-otp -> (existing rider) tokens                 = login
-                       -> (unknown phone) Rider created (PROFILE_PENDING) + tokens -> register (access token) completes the profile
-refresh: new token pair, rotating        logout: revoke this device's token
+                       -> (unknown phone) Rider created (PROFILE_PENDING) + tokens -> register (session token) completes the profile
+logout: POST /v1/rider/auth/logout (session token) deletes this device's session; there is no refresh
 ```
 
 ## Purpose

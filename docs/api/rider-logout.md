@@ -1,83 +1,48 @@
 # POST /v1/rider/auth/logout
 
-Status: APPROVED (owner, 2026-10-05). Items still marked TO DECIDE must be resolved in this doc before the code that needs them is written (CLAUDE.md rule 12). A change after approval needs a changelog row.
+Status: BUILT 2026-10-09 on the owner's instruction (server-side sessions, decisions 174 to 178). Replaces the earlier refresh-token design (APPROVED 2026-10-05). Items marked TO DECIDE have no decision yet. A change after approval needs a changelog row.
 
-Part of the unified phone-OTP flow (see the diagram in `rider-send-otp.md`). The path `/v1/rider/auth/logout` is APPROVED; the controller writes `@Controller('rider/auth')` and never `v1`.
+The controller writes `@Controller('rider/auth')` and never `v1`. Sibling docs: `rider-verify-otp.md`, `rider-register.md`, `driver-logout.md`.
 
 ## Purpose
-The rider logs out on this device. The server revokes that device's refresh token so it can never be exchanged again. Other devices of the same rider are not affected.
+The rider logs out on this device. The server deletes this device's session, so the token stops working at once. Other devices of the same rider keep their sessions (rider single-device is TO DECIDE, decision 177).
 
 ## Who calls it
-Rider app, from the logout button. Public endpoint that takes **the refresh token as the credential** (APPROVED): the app can still log out when its 15-minute access token has expired, and no JWT guard is needed (the JWT guard and the "authenticated user" decorator are F4 work and do not exist yet). It stays public, with the refresh token as the credential, until the JWT guard exists (decision 126); revisit then. Gate checks: throttler guard and validation. The rider and device are read from the stored token row, never from the request.
+Rider app, from the logout button. **Protected route:** it needs the session token (`Authorization: Bearer <token>`) of the session being ended. Gate checks: session guard (token known and unexpired, role `RIDER`, account not banned), throttler guard (IP), nothing else. There is no body.
 
 ## Request fields
-Body, JSON. Nothing else is accepted; unknown fields are rejected with `UNKNOWN_FIELD`.
-
-| Name | Type | Unit | Required? | Allowed range | Why it exists | Why this type/unit | Bucket | What breaks if wrong |
-|---|---|---|---|---|---|---|---|---|
-| refreshToken | string | opaque text | Required | 43 characters, base64url (same rule as `refresh`) | Identifies which device's token to revoke and proves the caller holds it | Opaque random value | Identity | Anyone could log out anyone |
-
-Shared types (`input-validation.md` section 2b): `OpaqueToken`.
+None. The route reads no body and no query. The rider id and the device id come from the session, never from the request.
 
 ## Response fields
-Success: HTTP 200 with `data: null` (APPROVED; 204 is not used, `response-format.md` rule 14). The reply is the same whether or not the token was known, so the call cannot be used to test tokens.
-
-## Derived values
-None. The device is found from the stored token row.
+Success: **HTTP 200**, `data` is `{ loggedOut: true }`.
 
 ## Order of operations
-1. Throttler guard (IP): 120 per IP per hour (decision 137).
-2. Validate the body.
-3. Hash the presented token (SHA-256) and look up the `RefreshToken` row.
-4. If a row exists: set `revokedAt` on every unrevoked `RefreshToken` of that `(riderId, deviceId)` (normally one) and set that `Device.fcmToken` to null so the device stops receiving pushes (decision 144).
-5. Reply 200 with `data: null`, also when no row exists or the token was already revoked.
-
-## Reference data used
-None.
+1. Session guard: `UNAUTHORIZED` (no token, unknown token, expired), `FORBIDDEN` (a driver session), `ACCOUNT_BANNED` (and all sessions of the rider are deleted).
+2. Throttler guard (IP): 120 per IP per hour (decision 137), counter name `rider-logout`. (The guard runs first, so a refused token does not use up the limit.)
+3. Delete the session of this rider and device (`SessionService.deleteForDevice`).
+4. Reply 200 `{ loggedOut: true }`.
 
 ## State changes
-- Before: the device has one unrevoked token. After: all of the device's tokens are revoked (rows kept) and its `fcmToken` is cleared.
-- Idempotency: natural. A second logout with the same token changes nothing and still replies 200.
-- Concurrency: logout racing a refresh with the same token: whichever commits first wins; if refresh wins, its new token is also revoked by logout only if logout runs after it. The race can leave a fresh unrevoked token for a device whose rider just logged out. Accepted (decision 144): the app discards its tokens on logout.
-
-## Data stored
-Updates `RefreshToken.revokedAt` and `Device.fcmToken`. Nothing new is stored.
+Before: one session row for the device. After: none. **Not idempotent in the sense of the old design:** calling again with the same token is `UNAUTHORIZED` (401), like any guarded route, because the token is gone. The `Device` row (and its push token) is kept.
 
 ## Errors
-All errors use the envelope in `standards/response-format.md`.
-
-| Code | HTTP status | When it happens | `field` marker | Rider-safe message | How the app UI should react |
+| Code | HTTP status | When it happens | `field` | Message | How the app reacts |
 |---|---|---|---|---|---|
-| INVALID_INPUT | 400 | Missing, wrong type, wrong format or unknown field | first invalid field | "Please check your input." | Treat as a bug |
-| RATE_LIMITED | 429 | More than 120 requests per hour from one IP | null | "Too many requests. Try again shortly." | Retry later; the app clears its local tokens regardless |
-| INTERNAL_ERROR | 500 | A bug or a database failure | null | "Something went wrong. Please try again." | Retry; the app clears local tokens either way |
-
-An unknown or already-revoked token is not an error (see Response fields).
-
-## Rate limit, logging and audit
-- Rate limit: 120 per IP per hour (decision 137, raised because many riders share one mobile-carrier address), by the in-memory throttler guard in `rider-send-otp.md` (client IP per `TRUST_PROXY_HOPS`, decision 123).
-- Log: `requestId`, code, status. Never the refresh token or its hash.
-- Audit event: no audit table in the MVP (decision 134). One structured log line with the `requestId` and the fixed event name `logout` only.
+| UNAUTHORIZED | 401 | No `Authorization: Bearer` header, an unknown or expired token (including one already logged out) | null | "Please log in again." | Treat as logged out: clear the stored token |
+| FORBIDDEN | 403 | A driver session | null | "You don't have access to this." | Treat as a bug |
+| ACCOUNT_BANNED | 403 | The rider is SUSPENDED, BLOCKED or DELETED (all their sessions are deleted) | null | "This account can't book rides." | Show support contact |
+| RATE_LIMITED | 429 | More than 120 calls per hour from one IP | null | "Too many requests. Try again shortly." | Retry later |
+| INTERNAL_ERROR | 500 | A bug or database failure | null | "Something went wrong. Please try again." | Retry |
 
 ## Edge cases and known limitations
-- The access token stays valid until it expires (15 minutes) even after logout, because it is a stateless JWT. The deferred `tokenVersion` column would close this.
-- "Log out of all devices" is not in this feature (decision 144).
-- The app must discard both tokens locally even if the call fails.
+- An app that gets 401 on logout can simply clear its token: the session is already gone.
+- Log: `requestId`, status. Never the token or its hash.
 
 ## Required tests
-- Happy path: 200, `data` null; the device's token has `revokedAt`; a later `refresh` with that token is `UNAUTHORIZED`; `Device.fcmToken` is null (if kept).
-- Other device untouched: a second device's token still refreshes.
-- Unknown token and already-revoked token: 200, same reply, nothing changed.
-- No token needed (public). Wrong role and blocked account: not applicable.
-- Invalid input: missing token, wrong type, wrong length, unknown field.
-- Duplicate call: the second logout is also 200.
-- Race condition: logout and refresh with the same token at the same time (outcome per the decision above).
-- Secrets: no token or hash in any log line.
+Built in `register.http.spec.ts` (logout group), `driver-session.http.spec.ts` and e2e cases 32 and 33: 200 `{ loggedOut: true }`; the token is dead afterwards (401 on logout and on register); no token and unknown token are 401; a driver token is 403; only this device's session is deleted; a banned rider is 403 with sessions deleted.
 
 ## Changelog
 | Date | What changed | Why |
 |---|---|---|
-| 2026-10-05 | Draft created: public, refresh token as the credential, same reply for any token | Owner's unified flow brief |
-| 2026-10-05 | Status changed from PROPOSED to APPROVED; logout stays public with the refresh token as the credential until the JWT guard exists; 30 per IP per hour | Owner approval and decisions 120 to 129 |
-| 2026-10-05 | 120 per IP per hour; no audit table | Owner decisions 130 to 140 |
-| 2026-10-05 | push clean-up on logout, the logout/refresh race and "log out of all devices" settled (decision 144) | Owner decisions 141 to 145 |
+| 2026-10-05 | Draft APPROVED (refresh-token logout, public, always 200) | Rider auth docs-first |
+| 2026-10-09 | **Redesigned and built:** guarded by the session token, no body, 401 for an unknown token, deletes the device session | Server-side sessions (decisions 174 to 178) |

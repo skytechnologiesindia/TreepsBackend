@@ -14,7 +14,7 @@ driver send-otp -> driver verify-otp -> (new phone)      Driver created (DOCUMEN
 The driver types the code they received. The server checks it with the OTP provider. If the phone is new, **in one database transaction** it marks the code used, creates the Driver (status `DOCUMENTS_PENDING`, phone verified), the DriverDevice and the first DriverRefreshToken, and replies with the driver and tokens. If the phone already has a driver, this is a login. A SUSPENDED, BLOCKED or DELETED driver is refused. There is no registration token and no separate register step.
 
 ## Who calls it
-Driver app, after driver `send-otp`. Public endpoint (no token, no role; an explicit exception to the gate in `api-standard.md` section 1). The Driver role is attached to the access token this API issues. Gate checks: validation, per-phone limit, OTP.
+Driver app, after driver `send-otp`. Public endpoint (no token, no role; an explicit exception to the gate in `api-standard.md` section 1). The Driver role is attached to the session this API creates. Gate checks: validation, per-phone limit, OTP.
 
 ## Request fields
 Body, JSON: **identical to `rider-verify-otp.md`** (same DTO class, `src/modules/otp/dto/verify-otp.dto.js`). Nothing else is accepted; unknown fields (including `status`, `role`, `purpose`) are rejected with `UNKNOWN_FIELD`. Nothing is trimmed, lowercased or defaulted silently.
@@ -24,7 +24,7 @@ Body, JSON: **identical to `rider-verify-otp.md`** (same DTO class, `src/modules
 | phoneNumber | string | E.164 text | Required | `+91` + 10 digits, first of the 10 in 6 to 9 (`IndianMobile`) | Finds the OTP session and the driver | One canonical spelling per number | Identity | Wrong session or account |
 | otp | string | digits as text | Required | Exactly 6 digits (`OtpCode`) | Proves the driver holds the phone | Text, so a leading zero survives | Input | A real driver fails |
 | device | object | n/a | Required | Fields below; no unknown fields at any depth | Binds the tokens to one device | Nested object | Input | Tokens cannot be bound to a device |
-| device.deviceId | string | text | Required | 1 to 64 characters, only `A-Z a-z 0-9 _ -` | App-generated install id; one refresh token per device | Text | Identity | Two devices share one token |
+| device.deviceId | string | text | Required | 1 to 64 characters, only `A-Z a-z 0-9 _ -` | App-generated install id; one active session per driver | Text | Identity | Two devices share one session |
 | device.platform | string | enum | Required | `ANDROID`, `IOS` | Admin and push routing | Enum, uppercase | Input | Wrong push channel |
 | device.appVersion | string | text | Required | three dot-separated numbers like `1.4.2`, 1 to 3 digits each | Support and force-update | Text | Input | Cannot tell which build has a bug |
 | device.fcmToken | string | text | Optional | 1 to 512 characters; never logged | Push notifications | Text | Input | No push messages |
@@ -42,10 +42,8 @@ Success: HTTP 200 in both cases (TO DECIDE: a new driver is created, so 201 woul
 | driver.status | string | enum | Always | `DriverStatus` value (a new driver is `DOCUMENTS_PENDING`) | App decides what the driver may do next | Enum, uppercase | Derived | App shows an approved driver as pending |
 | driver.createdAtIst | string | `dd-mm-yyyy HH:mm:ss`, India time | Always | Example `"07-10-2026 19:23:10"` for `2026-10-07T13:53:10.203Z`. Added by the serializer step (`response-format.md` section 8); additive, so apps bound to `createdAt` keep working and need not format | Display in India | Text | Derived | Wrong time shown |
 | driver.createdAt | string | ISO UTC `YYYY-MM-DDTHH:mm:ss.sssZ` | Always | n/a | Member since | UTC per `api-standard.md` | Derived | Wrong "member since" |
-| tokens.accessToken | string | JWT | Always | valid 15 minutes, `role` claim `DRIVER` | Authenticates later calls | JWT, stateless | Derived | Driver cannot call APIs |
-| tokens.accessTokenExpiresInSeconds | integer | seconds | Always | 900 | App schedules the refresh | Seconds | Reference (config) | App uses a dead token |
-| tokens.refreshToken | string | opaque text | Always | valid 30 days | Gets a new access token | Opaque random value | Derived | Driver is logged out early |
-| tokens.refreshTokenExpiresInSeconds | integer | seconds | Always | 2592000 | App knows when it must log in again | Seconds | Reference (config) | App keeps a dead token |
+| tokens.accessToken | string | opaque text | Always | the session token: 43 base64url characters (32 random bytes), shown once; only its SHA-256 hash is stored | Authenticates later calls (`Authorization: Bearer <accessToken>`) | Opaque random value, so the server can delete it at once; the name is kept so the apps do not change | Derived | Driver cannot call APIs |
+| tokens.expiresInSeconds | integer | seconds | Always | `2592000` (30 days, sliding: extended on use, written at most once an hour) | App knows how long the session lasts | Seconds | Reference (config) | App keeps a dead token |
 
 Never in the reply: `isPhoneVerified`, `lastLoginAt`, `deletedAt`, the token hash, the provider session id, `attempts`, any registration token (none exists), any internal row id other than `driver.id`.
 
@@ -62,17 +60,17 @@ Never in the reply: `isPhoneVerified`, `lastLoginAt`, `deletedAt`, the token has
    - a conditional update marks the code used and finished (`verifiedAt` null becomes now, `consumedAt` now). If it changes no row, another request used the code first: `OTP_INVALID`, nothing else is written. This is the **single-use** step and it runs first, so a parallel request waits on the row, then matches nothing;
    - **new phone:** create the Driver (`DOCUMENTS_PENDING`, `isPhoneVerified` true, `lastLoginAt` now). **Existing driver:** set `lastLoginAt`;
    - upsert the DriverDevice (create it, or update `platform`, `appVersion`, `lastSeenAt`, and `fcmToken` if sent);
-   - revoke the device's earlier unrevoked DriverRefreshToken rows;
-   - create the new DriverRefreshToken (SHA-256 hash only).
+   - create the session through `SessionService` (a `DriverRefreshToken` row, SHA-256 hash only), replacing this device's earlier one;
+   - delete every other session of this driver and every other `DriverDevice` row (**one active session**, decision 174).
    A unique violation on the phone (another session created the Driver first) becomes `CONFLICT`; the whole transaction rolls back, so the code is not used.
-6. Sign the access token (role `DRIVER`) and reply 200.
+6. Reply 200 with the session token.
 
 ## Derived values
 - `isNewDriver`, the driver object and the tokens are computed by the server. The client sends no status or role.
-- Access token: signed JWT, 15 minutes, HS256, claims `iss` `treeps`, `sub` (the driver id), `role` `DRIVER`, `deviceId`, `iat`, `exp`. It is the same signer as the rider token (`src/common/jwt/access-token.service.ts`, secret `JWT_ACCESS_SECRET`); **the `role` claim is what keeps rider and driver tokens apart**, so every guard must check it (decision 158). Refresh token: 32 random bytes, base64url, 30 days, only its SHA-256 hash stored.
+- Session token: 32 random bytes from `crypto.randomBytes`, base64url, valid 30 days from the last use (sliding, decision 176). Only its SHA-256 hash is stored, in the `DriverRefreshToken` table reused as the session table (no migration, decision 174). The same `SessionService` serves the rider route. There is no JWT.
 
 ## Reference data used
-OTP numbers, the 10-per-hour limit and the provider timeout as in `rider-send-otp.md` and `rider-verify-otp.md` (constants in `src/config/`). Access 900 s, refresh 2592000 s.
+OTP numbers, the 10-per-hour limit and the provider timeout as in `rider-send-otp.md` and `rider-verify-otp.md` (constants in `src/config/`). Session lifetime 2592000 s (constants in `src/config/tokens.ts`).
 
 ## State changes
 - Before: one open `DRIVER_AUTH` `OtpSession`. After (new phone): `verifiedAt` and `consumedAt` set, one `Driver`, one `DriverDevice`, one `DriverRefreshToken`. After (existing driver): `verifiedAt` and `consumedAt` set, `DriverDevice` new or updated, the old token for that device revoked, a new `DriverRefreshToken`, `Driver.lastLoginAt` updated. After (banned): `verifiedAt` and `consumedAt` set, nothing else.
@@ -90,7 +88,7 @@ OTP numbers, the 10-per-hour limit and the provider timeout as in `rider-send-ot
 |---|---|
 | Driver | `id` (uuid), `phoneNumber` (**unique**, plain unique for every row, so a DELETED driver keeps the phone, as decision 128 for riders), `status` enum `DriverStatus` (`DOCUMENTS_PENDING` default, `UNDER_REVIEW`, `APPROVED`, `REJECTED`, `SUSPENDED`, `BLOCKED`, `DELETED`), `isPhoneVerified` (default false; the server sets true after the OTP check), `lastLoginAt?`, `deletedAt?`, `createdAt`, `updatedAt` |
 | DriverDevice | One row per driver install: `driverId`, `deviceId` (the app's install id), `platform`, `appVersion`, `fcmToken?`, `lastSeenAt`. Unique `(driverId, deviceId)`; deleted with the driver |
-| DriverRefreshToken | `tokenHash` (unique, SHA-256), `driverId` and `deviceId` (the pair points to DriverDevice), `expiresAt`, `revokedAt?`, `createdAt`. Index `(driverId, deviceId)`. Revoked rows are kept (reuse detection) |
+| DriverRefreshToken | `tokenHash` (unique, SHA-256), `driverId` and `deviceId` (the pair points to DriverDevice), `expiresAt`, `revokedAt?`, `createdAt`. Index `(driverId, deviceId)`. Reused as the session table (decision 174): `tokenHash` is the SHA-256 of the session token, `expiresAt` the sliding expiry, `createdAt` the login time; "last used" is derived (`expiresAt` minus 30 days); `revokedAt` is no longer written. Old revoked rows are kept (reuse detection) |
 
 Separate tables from the rider ones: no foreign key is shared and nullable. Profile, documents, vehicle and recharge come later as nullable columns or separate tables. There is no live-location or online state here.
 
@@ -111,7 +109,7 @@ All errors use the envelope in `standards/response-format.md`. Same codes and wo
 
 ## Where it lives
 - `src/modules/driver-auth/`: `driver-verify-otp.service.ts` (`DriverVerifyOtpService`, `driverView`), the route in `driver-auth.controller.ts`, `driver-auth.module.ts`.
-- **Shared with the rider route** (not copied): `src/modules/otp/otp-code-checker.ts` (`OtpCodeChecker.check` is steps 1 to 5 of the rider order, and `markCodeUsed` is the single-use step), the DTOs `src/modules/otp/dto/verify-otp.dto.ts` and `device.dto.ts`, `src/common/jwt/access-token.service.ts` (`AccessTokenService.issueForDriver`, with its `AccessTokenModule`), `src/common/database/unique-violation.ts`. The rider service calls the same checker with purpose `RIDER_AUTH`.
+- **Shared with the rider route** (not copied): `src/modules/otp/otp-code-checker.ts` (`OtpCodeChecker.check` is steps 1 to 5 of the rider order, and `markCodeUsed` is the single-use step), the DTOs `src/modules/otp/dto/verify-otp.dto.ts` and `device.dto.ts`, `src/common/session/session.service.ts` (`SessionService`, with its `SessionModule`), `src/common/database/unique-violation.ts`. The rider service calls the same checker with purpose `RIDER_AUTH`.
 - The time comes from the injectable clock (`src/common/clock.ts`).
 
 ## Rate limit, logging and audit
@@ -124,10 +122,10 @@ All errors use the envelope in `standards/response-format.md`. Same codes and wo
 - This route reveals whether a phone has a driver account (`isNewDriver`, `ACCOUNT_BANNED`), but only to someone who proved they hold the phone.
 - A SUSPENDED or BLOCKED driver still costs an SMS at `send-otp` (that route never reads an account table).
 - A driver whose status is `DOCUMENTS_PENDING`, `UNDER_REVIEW`, `APPROVED` or `REJECTED` can log in. What each status may do after login is decided by later APIs. Whether a `REJECTED` driver should be refused here: TO DECIDE.
-- **One active device (decision 170, 2026-10-09):** a successful login deletes every other DriverDevice of the driver and their refresh tokens in the same transaction, so a login on a new device signs the old device out (its access token still works for up to 15 minutes, decision 173). Logging in again on the same device just replaces its token.
-- Access tokens already issued stay valid until they expire (15 minutes) even after a ban (as for riders, decision 144).
+- **One active session (decision 174, 2026-10-09):** a successful login deletes every other session of the driver (and their `DriverDevice` rows) in the same transaction, so a login on a new phone signs the old phone out **at once**: its token is unknown from then on. Logging in again on the same device replaces its session.
+- A ban takes effect at once: the session guard checks the driver status on every request, answers `ACCOUNT_BANNED` and deletes the driver's sessions (decision 176).
 - A person may hold a rider and a driver account with one phone (the two are separate tables and separate codes); whether that is allowed for good: TO DECIDE (as in `driver-send-otp.md`).
-- The rider route could not tell a driver token from a rider token if a guard ignored `role`. The JWT guard (F4) must check `role` against the route's domain.
+- The session guard checks the session role against the route domain: `/v1/driver/*` needs a DRIVER session (a rider session is `FORBIDDEN`).
 
 ## Required tests
 - New phone: the driver is created `DOCUMENTS_PENDING` with `isPhoneVerified` true; one DriverDevice; one DriverRefreshToken storing only the SHA-256 hash; the session has `verifiedAt` and `consumedAt`; the reply has `isNewDriver` true, `driver` with exactly `createdAtIst` (the Indian-time twin of `createdAt`) and `id`, `phoneNumber`, `status`, `createdAt`, tokens, and no registration token.
@@ -136,7 +134,7 @@ All errors use the envelope in `standards/response-format.md`. Same codes and wo
 - Code: wrong gives `OTP_INVALID`, expired gives `OTP_EXPIRED`, used gives `OTP_INVALID`.
 - Isolation: a `RIDER_AUTH` session does not work on this route (no provider call, nothing created); a `DRIVER_AUTH` session does not work on the rider route.
 - Transaction failure: a failure at each step (mark used, create Driver, device, refresh token) leaves nothing and the code is still usable; a unique violation on the phone is `CONFLICT` and the code stays usable.
-- Role: the access token's `role` claim is `DRIVER` (and `RIDER` for a rider).
+- Role: the session role is `DRIVER` (and `RIDER` for a rider).
 - Envelope and validation: 200 in the standard envelope, not served without `/v1`, the same invalid-input and unknown-field answers as the rider route.
 - Race (real Postgres): two simultaneous verifies for a new phone create exactly one Driver.
 
@@ -152,3 +150,4 @@ A barrier holds both requests until each has passed the code check and the drive
 |---|---|---|
 | 2026-10-07 | Draft created and built: driver verify-otp, `Driver`, `DriverDevice`, `DriverRefreshToken`, role `DRIVER`, one transaction for create and login, shared code check | Owner instruction of 2026-10-07 (decisions 152 to 159) |
 | 2026-10-09 | One active device: verify-otp deletes the driver's other devices and their refresh tokens in the same transaction | M6 driver (decision 170) |
+| 2026-10-09 | **Server-side sessions:** `tokens` is now `{ accessToken, expiresInSeconds }` (opaque session token, 30 days sliding); one active session per driver; no JWT, no refresh token | Decisions 174 to 178 |

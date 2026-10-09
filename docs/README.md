@@ -16,7 +16,6 @@
 | [api/rider-verify-otp.md](api/rider-verify-otp.md) | POST /v1/rider/auth/verify-otp: login, new rider or banned (draft) |
 | [api/driver-send-otp.md](api/driver-send-otp.md) | POST /v1/driver/auth/send-otp: same as the rider route, purpose DRIVER_AUTH (draft) |
 | [api/rider-register.md](api/rider-register.md) | POST /v1/rider/auth/register, final Rider data model, admin endpoints (draft) |
-| [api/rider-refresh.md](api/rider-refresh.md) | POST /v1/rider/auth/refresh: rotating tokens (draft) |
 | [api/rider-logout.md](api/rider-logout.md) | POST /v1/rider/auth/logout (draft) |
 | [engines/fare-engine.md](engines/fare-engine.md) | Fare engine |
 | [learning/nest-for-express-devs.md](learning/nest-for-express-devs.md) | Express/Mongoose to NestJS/Prisma glossary |

@@ -13,18 +13,18 @@ send-otp -> verify-otp -> (new phone)       Rider created (PROFILE_PENDING) + to
                        -> (existing rider)  login + tokens, isNewRider false
                        -> (SUSPENDED / BLOCKED / DELETED) ACCOUNT_BANNED
 GET /v1/rider/me  -> DEFERRED until the driver submit-for-review step; until then the app reads status + isProfileComplete from the verify-otp / register reply
-POST /v1/rider/auth/register (access token) -> name + email set, status ACTIVE, isProfileComplete true
-refresh: new token pair, rotating        logout: revoke this device's token
+POST /v1/rider/auth/register (session token) -> name + email set, status ACTIVE, isProfileComplete true
+logout: POST /v1/rider/auth/logout (session token) deletes this device's session
 ```
 - `send-otp` never reads the Rider table and replies the same for any phone.
 - `verify-otp` checks the OTP and **creates the Rider row** for a new phone (see `rider-verify-otp.md`). There is no registration token any more.
-- `register` (this doc) is an **authenticated** call. It needs the access token that `verify-otp` issued. It no longer takes a token, an OTP, a phone or a `device` object: the rider id and the device id come from the access token.
+- `register` (this doc) is an **authenticated** call. It needs the session token that `verify-otp` returned. It no longer takes a token, an OTP, a phone or a `device` object: the rider id and the device id come from the access token.
 
 ## Purpose
 A rider whose phone is verified and whose profile is still empty (status `PROFILE_PENDING`) sets their name and email. In one conditional update the server writes the profile, moves the status to `ACTIVE` and sets `isProfileComplete` to true, and replies with the rider. There is no OTP and no call to the SMS provider at this step. Until the profile is complete the rider has tokens but the app keeps them on the profile screen (what a `PROFILE_PENDING` rider may do on other routes, for example estimate or booking: TO DECIDE, decided when those routes get the guard).
 
 ## Who calls it
-Rider app, on the profile screen, right after `verify-otp` or on a later day. **Protected endpoint:** a valid access token with `role` `RIDER` is required (this changes the old "public" exception; the JWT guard is described in `rider-me.md`, Gate). Gate checks: JWT guard (token valid, role `RIDER`), throttler guard, validation, status.
+Rider app, on the profile screen, right after `verify-otp` or on a later day. **Protected endpoint:** a valid session token (`Authorization: Bearer <token>`) with role `RIDER` is required; the session guard is `src/common/auth/session-auth.guard.ts` (decision 176). Gate checks: session guard (session known and unexpired, role `RIDER`, account not banned), throttler guard, validation, status.
 
 ## Request fields
 Body, JSON. **Nothing else is accepted**; unknown fields (including `registrationToken`, `phoneNumber`, `otp`, `device`, `status`, `isPhoneVerified`, `isEmailVerified`, `isProfileComplete`, `role`, `id`) are rejected with `UNKNOWN_FIELD`. No field is trimmed, lowercased or defaulted silently (`input-validation.md` rule 3).
@@ -37,7 +37,7 @@ Body, JSON. **Nothing else is accepted**; unknown fields (including `registratio
 | registeredState | string | text | Optional, may be `null` | 1 to 100 characters | As above | As above | Input | As above |
 
 Rules for the rows above (unchanged from the earlier design):
-- **Identity:** not in the body. The rider id is the `sub` claim of the access token; the phone is the one stored on that Rider row at verify-otp.
+- **Identity:** not in the body. The rider id comes from the session; the phone is the one stored on that Rider row at verify-otp.
 - **fullName:** the `PersonName` type (`input-validation.md` section 2b). Violations are rejected, never fixed. Reasons: `TOO_SHORT`, `TOO_LONG`, and `INVALID_FORMAT` for a disallowed character, a leading or trailing space, or a double space. Letters and combining marks mean Devanagari and other Indian-script names are accepted. The hyphen `-` is allowed (decision 141), but not as the first or last character and not twice in a row. Known limits: a name made only of punctuation passes the character rule, and two spellings of the same accented letter are stored as sent.
 - **email:** optional; **omitted means "keep the email as it is"** (nothing is wiped; on the first call that leaves it null). `null` is `WRONG_TYPE` (decision 46), so the email cannot be removed through this route. **A different email than the stored one sets `isEmailVerified` back to false**; the same email sent again leaves it alone. No lowercasing: an address containing an uppercase letter or any space is rejected with `INVALID_FORMAT`, and the app lowercases before sending. Why: Postgres unique is case-sensitive, and because only lowercase gets in, `A@x.com` and `a@x.com` can never be two different stored emails through this API. An email that already belongs to another rider is `EMAIL_IN_USE` (409, `field` `email`), found by the pre-check or, when two calls race, by the unique index. The shape rule is the `Email` type in `input-validation.md` section 2b (decision 136). **Whether email becomes required for a complete profile: TO DECIDE (it is optional, as before).**
 - **registeredCity / registeredState:** like email: **sent means saved, omitted keeps the stored value.** A value is trimmed of leading and trailing whitespace before it is stored. `null` and a whitespace-only value are accepted but treated as not sent, so they keep the stored value: **clearing a city or state is not supported for now.** On the first call nothing is stored yet, so omitted leaves them null. An empty string `""` is rejected (`TOO_SHORT`). A wrong type, a value over 100 characters or one containing U+0000 is `INVALID_INPUT`.
@@ -67,10 +67,10 @@ Never in the reply: `deletedAt`, `lastLoginAt`, any token or hash, any internal 
 ## Derived values
 - Server-set when the profile is completed: `status` = `ACTIVE`, `isProfileComplete` = `true`, `updatedAt` = now. `isPhoneVerified` stays `true` and `isEmailVerified` stays `false`. **`isProfileComplete` becoming true here is a change from decision 144** ("nothing in this feature sets it"): the app needs the flag to choose its screen (decision 163).
 - The rider id comes from the token, never from the client.
-- No new tokens are issued here. For reference, the tokens the rider already holds (issued by verify-otp): the access token is a signed JWT, 15 minutes, algorithm HS256 (decision 133), signed with `JWT_ACCESS_SECRET` (at least 32 characters), issuer `treeps`, claims `sub` (the rider id), `role` (`RIDER`), `deviceId` (the install id), `iat` and `exp`; verification accepts only HS256, never `none`. The refresh token is 32 random bytes (`crypto.randomBytes`, base64url), valid 30 days, only its SHA-256 hash stored; rotation and reuse rules are in `rider-refresh.md`.
+- No new tokens are issued here. The rider keeps the session token that `verify-otp` returned (opaque, 30 days sliding, only its SHA-256 hash stored; see `rider-verify-otp.md`).
 
 ## Order of operations
-1. JWT guard: valid access token, role `RIDER`; otherwise `UNAUTHORIZED` or `FORBIDDEN`.
+1. Session guard: valid session token, role `RIDER`, account not banned; otherwise `UNAUTHORIZED`, `FORBIDDEN` or `ACCOUNT_BANNED` (all the rider's sessions are deleted).
 2. Throttler guard (IP): 10 per hour per IP (existing `register` limit; whether it should become per rider now: TO DECIDE).
 3. Validate the body.
 4. Pre-check: another Rider (not the caller) already has this email: `EMAIL_IN_USE` (so a fixable mistake gets a clear answer before the write; the rider's own email is not a clash).
@@ -80,10 +80,10 @@ Never in the reply: `deletedAt`, `lastLoginAt`, any token or hash, any internal 
 The write is one statement, so no transaction is needed. Two parallel calls from one rider both succeed and the last write wins; two riders racing for one email give one 200 and one `EMAIL_IN_USE` (the unique index decides; tested on real Postgres).
 
 ## Where it lives
-`src/modules/rider-auth/`: `register.service.ts` (rewritten: `completeProfile`, the order above), `dto/register.dto.ts` (loses `registrationToken` and `device`), the route in `rider-auth.controller.ts` (`@HttpCode(200)`, behind the JWT guard), `rider-view.ts` (`fullName` nullable). The JWT guard and its decorators are new (see `rider-me.md`, Gate).
+`src/modules/rider-auth/`: `register.service.ts` (rewritten: `completeProfile`, the order above), `dto/register.dto.ts` (loses `registrationToken` and `device`), the route in `rider-auth.controller.ts` (`@HttpCode(200)`, behind `SessionAuthGuard`), `rider-view.ts` (`fullName` nullable). The guard (`src/common/auth/session-auth.guard.ts`) and `@AuthUser()` are shared (decision 176).
 
 ## Reference data used
-Config values, never hardcoded: access TTL 900 s, refresh TTL 2592000 s, the register rate limit. The registration-token lifetime (600 s) is no longer used.
+Config values, never hardcoded: the register rate limit (and the session constants in `src/config/tokens.ts`).
 
 ## State changes
 - Before: one Rider `PROFILE_PENDING`, `fullName` and `email` null, `isProfileComplete` false (created by verify-otp). After: the same row with `fullName` (and optional `email`, city, state) set, `status` `ACTIVE`, `isProfileComplete` true. No Device, RefreshToken or OtpSession change.
@@ -271,7 +271,7 @@ All errors use the envelope in `standards/response-format.md`.
 | Code | HTTP status | When it happens | `field` marker | Rider-safe message | How the app UI should react |
 |---|---|---|---|---|---|
 | INVALID_INPUT | 400 | Missing, wrong type, wrong format, too short or long, or unknown field (`details` lists all) | first invalid field | "Please check your input." | Highlight the fields in `details` |
-| UNAUTHORIZED | 401 | No `Authorization: Bearer` header, a malformed, wrongly signed, wrong-issuer or expired access token; or the rider no longer exists | null | "Please log in again." | Try `refresh`; if that fails, start phone login again |
+| UNAUTHORIZED | 401 | No `Authorization: Bearer` header, or an unknown or expired session token; or the rider no longer exists | null | "Please log in again." | Start phone login again |
 | FORBIDDEN | 403 | A valid token whose `role` does not match the route domain (a `DRIVER` token on `/v1/rider/*`, a `RIDER` token on `/v1/driver/*`) | null | "You don't have access to this." | Treat as a bug; log out |
 | ACCOUNT_BANNED | 403 | The rider is SUSPENDED, BLOCKED or DELETED | null | "This account can't book rides." (proposed) | Show support contact |
 | EMAIL_IN_USE | 409 | Another rider already has this email | email | "This email is already in use." (proposed) | Highlight the email field |
@@ -304,7 +304,7 @@ Until then there is no way to suspend or block a rider through the API.
 - A DELETED rider's phone: see Data model, DELETED riders and the unique phone. verify-otp gives it `ACCOUNT_BANNED`.
 - The profile can be sent again; `fullName` is replaced each time; email, city and state are replaced only when sent (email: and only when different, then `isEmailVerified` resets). They cannot be cleared through this route. Other profile edits (photo, gender) need a profile-update API (not built, no doc).
 - `device.fcmToken` is set at verify-otp; a route to change it later is deferred (decision 144).
-- Access tokens stay valid for up to 15 minutes after a ban (stateless JWT, decision 144), so a banned rider with a live token passes the guard until it expires; the conditional update still refuses the write.
+- A ban takes effect at once: the session guard answers `ACCOUNT_BANNED` and deletes the rider's sessions (decision 176); the conditional update still refuses the write as a second line of defence.
 - SMS, DLT registration and the provider are covered in `rider-send-otp.md`.
 
 ## Required tests
@@ -341,3 +341,4 @@ Until then there is no way to suspend or block a rider through the API.
 | 2026-10-08 | **Built.** JWT access-token guard (`src/common/auth/jwt-auth.guard.ts`: signature, issuer `treeps`, expiry, role must match the route domain: 401 `UNAUTHORIZED`, 403 `FORBIDDEN`); register is now `completeProfile` behind the guard, 200; a second call saves the new values again instead of `CONFLICT` (owner instruction); `registrationToken` code, `REGISTRATION_TOKEN_INVALID` and `OtpProviderNotBuiltError` removed; `GET /me` for rider and driver deferred until the driver submit-for-review step | Owner override of 2026-10-08 |
 | 2026-10-08 | Omitted email is kept (not wiped); a changed email resets `isEmailVerified`; email-unique race tested on real Postgres; known limit: the guard does not check account status (decision 168) | Owner instruction of 2026-10-08 (decision 167 amended) |
 | 2026-10-08 | City and state follow the email rule: sent means saved, omitted (or null / blank) keeps the stored value; clearing is not supported | Owner instruction of 2026-10-08 (decision 167 amended) |
+| 2026-10-09 | Auth is a server-side session (opaque token, decisions 174 to 178): the "JWT guard" is the `SessionAuthGuard`; bans are instant; no refresh. The route itself is unchanged | Server-side sessions |

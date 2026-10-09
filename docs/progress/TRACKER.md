@@ -51,7 +51,7 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [x] Driver `register`: not needed, driver verify-otp creates the account (decision 156)
 - [ ] Driver admin visibility (audit, tracking, metrics endpoints): TO DECIDE whether decision 119 (rider auth before admin auth) also covers drivers
 - [ ] Driver audit log lines (`driver.created`, `driver.login.succeeded`, `driver.login.banned`): need a request context (same item as the rider lines)
-- [x] Driver `refresh` and `logout` (M6 driver, 2026-10-09): `driver-refresh.md`, `driver-logout.md`, `DriverSessionService`, `REFRESH_TOKEN_INVALID`, reuse detection (10 s grace), one active device per driver (decisions 170 to 173). No migration. Tests: `driver-session.http.spec.ts` + real-Postgres e2e cases 26 to 38
+- [x] ~~Driver `refresh` and `logout`~~ replaced the same day by server-side sessions (see "Sessions" below): the refresh endpoint is deleted (decision 178)
 - [ ] The JWT guard (F4) must check the access token's `role` (RIDER or DRIVER) against the route's domain; today only the claim differs (decision 158)
 - [ ] Driver status rules after login (what DOCUMENTS_PENDING, UNDER_REVIEW, REJECTED may do; whether REJECTED may log in): TO DECIDE
 - [x] Driver `send-otp` (`src/modules/driver-auth/`, `api/driver-send-otp.md`, decision 150): `DRIVER_AUTH` migration applied (backup `C:\Users\HP\Documents\treeps_db-backup-2026-10-06.dump`)
@@ -61,8 +61,8 @@ Docs: `api/rider-send-otp.md`, `rider-verify-otp.md`, `rider-register.md`, `ride
 - [ ] Audit log lines (`login.succeeded`, `otp.locked`, `login.banned`, `registration_token.issued`, `rider.registered`, ...): need a request context so a service can log the `requestId`
 - [x] `register` code and tests (`src/modules/rider-auth/`, decision 151): in-memory tests plus race tests on real Postgres (`register.pg.spec.ts`, scratch database `treeps_scratch_register`, run with `RUN_PG_TESTS=1`, see `api/rider-register.md` "Race tests"); shared types `OpaqueToken`, `PersonName`, `Email` built; waiting for the owner to commit
 - [ ] `device.fcmToken` `""` gives `REQUIRED` but `input-validation.md` section 2b says `TOO_SHORT`: TO DECIDE (found during register; not changed)
-- [ ] Rider `refresh` code and tests (rotation, reuse detection): **M6 rider deferred** (the driver version is built; `classifyRefreshToken` and the grace constant are shared and ready)
-- [ ] Rider `logout` code and tests: **M6 rider deferred**
+- [x] Rider `refresh`: **removed from the plan** (no refresh in the session design, decision 178)
+- [x] Rider `logout` built as `POST /v1/rider/auth/logout` (guarded, 2026-10-09)
 - [x] Access token signing: hand-written HS256, claims iss, sub, role, deviceId (decisions 133, 149)
 - [ ] The JWT guard and the authenticated-user decorator for later APIs (F4); `verifyHs256Jwt` is ready for it
 - [x] Removed the Firebase auth code (`src/auth/`), its module registration and tests, and both "remove in F4" allowlist entries (decision 146)
@@ -77,8 +77,8 @@ Admin visibility (CLAUDE.md): `GET /v1/admin/riders`, `GET /v1/admin/riders/:id`
 Docs updated, **code not changed, owner approval pending**: `api/rider-verify-otp.md`, `rider-register.md` (now authenticated complete-profile), new `rider-me.md` and `driver-me.md`, `standards/response-format.md`, `rider-send-otp.md`.
 - [ ] Owner approves the redesign docs and answers the TO DECIDE items (route rename, 200 vs 201, email required, `PROFILE_PENDING` as column default, drop the two `OtpSession` columns, `/me` banned behaviour, guard global vs per route, abandoned-row cleanup)
 - [x] Migration `20261007160000_rider_profile_pending` (`RiderStatus` + `PROFILE_PENDING`, `Rider.fullName` nullable), generated with `prisma migrate diff`, tested on a scratch database, applied to `treeps_db` on 2026-10-08 (backup `treeps_db-backup-2026-10-07-rider-verify.dump`). Later maybe drop `OtpSession.registrationTokenHash` and `registrationExpiresAt` (TO DECIDE)
-- [x] JWT access-token guard (2026-10-08): `src/common/auth/jwt-auth.guard.ts` + `@AuthUser()`; checks signature, issuer, expiry and that the role matches the route domain (401 / 403). Guard is per route (`@UseGuards`). `@Roles` and `@Public()` not needed yet
-- [ ] Known limit (decisions 168 and 173): the guard does not check account status or the device in the DB; a banned rider's or a logged-out/replaced driver device's access token stays valid until it expires (max 15 min). Driver refresh/logout are built (M6 driver); revisit with the rider M6 and `tokenVersion`
+- [x] Auth guard: now `SessionAuthGuard` (2026-10-09, replaces the JWT guard of 2026-10-08): session lookup, role vs route domain, account status, sliding expiry
+- [x] Known limit of decisions 168 and 173 **closed** by server-side sessions: bans and logouts are instant (decision 176)
 - [x] Real-Postgres e2e smoke for the rider flow (2026-10-09): `npm run e2e:rider`, 26 cases, scratch DB `treeps_scratch_e2e` dropped at the end (`docs/runbooks/e2e-rider-smoke.md`). It found the session time zone bug (decision 169), fixed
 - [x] Complete-profile follow-ups (2026-10-08): omitted email is kept, a changed email resets `isEmailVerified`, duplicate email is `EMAIL_IN_USE` 409 including the race, real-Postgres email race test (`register.pg.spec.ts`, scratch DB dropped after the run)
 - [x] Rider `verify-otp.service.ts` (2026-10-08): creates Rider + Device + RefreshToken in one transaction for a new phone, `PROFILE_PENDING` logs in, `CONFLICT` on a phone race, registration-token branch removed; tests incl. real-Postgres race (`verify-otp.pg.spec.ts`). The old register route and its tests are untouched; its end-to-end test is skipped until register is replaced
@@ -87,6 +87,15 @@ Docs updated, **code not changed, owner approval pending**: `api/rider-verify-ot
 - [x] Error registry: `REGISTRATION_TOKEN_INVALID` removed, 19 becomes 18 (2026-10-08); `OtpProviderNotBuiltError` and `REGISTRATION_TOKEN_TTL_SECONDS` removed too
 - [x] Tests (2026-10-08): `register.http.spec.ts` rewritten, `jwt-auth.guard.http.spec.ts` added, `register.service.spec.ts` and `register.pg.spec.ts` deleted (registration-token design), `error-registry.spec.ts` and `startup-failure.spec.ts` updated
 - [ ] Admin endpoints (still deferred): show `PROFILE_PENDING` riders and the profile completion rate
+
+### Sessions (2026-10-09, replaces M6 refresh/logout and the JWT; decisions 174 to 178)
+- [x] `SessionService` (`src/common/session/`): create, findByToken, touch, deleteForDevice, deleteAllForAccount; storage reuses `RefreshToken` / `DriverRefreshToken`, **no migration**
+- [x] `SessionAuthGuard` + `@AuthUser()`; 401 / 403 FORBIDDEN / 403 ACCOUNT_BANNED (sessions deleted); sliding expiry written at most once an hour
+- [x] verify-otp (rider and driver) returns `tokens: { accessToken, expiresInSeconds }`; driver: one active session; rider: one session per device (single-device is TO DECIDE, decision 177)
+- [x] `POST /v1/rider/auth/logout` and `POST /v1/driver/auth/logout` (guarded)
+- [x] Removed: refresh endpoint, `REFRESH_TOKEN_INVALID`, rotation code, JWT code, `JWT_ACCESS_SECRET`; docs updated, refresh docs deleted
+- [x] Real-Postgres e2e: 35 cases (`npm run e2e:rider`)
+- [ ] Later: drop the unused `revokedAt` column and rename the two tables to `Session` / `DriverSession` (migration, TO DECIDE); a cache inside `SessionService`; cleanup of expired session rows (TO DECIDE)
 
 ## L0 checklist
 The owner typed the code. Step 1 was a read-only orientation.
