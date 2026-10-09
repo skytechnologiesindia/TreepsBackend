@@ -8,7 +8,7 @@ import { rawBaseUrl, versionedBaseUrl } from '../../common/testing/base-url.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { OTP_PROVIDER, type OtpProvider } from '../otp/provider/otp-provider.js';
 import { RiderAuthController } from './rider-auth.controller.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
 import { VerifyOtpService } from './verify-otp.service.js';
 import { RegisterService } from './register.service.js';
@@ -39,7 +39,7 @@ async function startApp(options: { failingProvider?: boolean } = {}) {
       SendOtpService,
       VerifyOtpService,
       RegisterService,
-      { provide: AccessTokenService, useValue: new AccessTokenService('placeholder-jwt-secret-0123456789abcdef') },
+      SessionService,
       { provide: PrismaService, useValue: prisma },
       { provide: OTP_PROVIDER, useValue: provider },
       { provide: CLOCK, useValue: () => new Date(now) },

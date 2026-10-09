@@ -22,7 +22,6 @@ describe('AppController (e2e)', () => {
     vi.stubEnv('OTP_PROVIDER', 'fake');
     vi.stubEnv('ALLOW_FAKE_OTP', 'true');
     vi.stubEnv('FAKE_OTP_CODE', '123456');
-    vi.stubEnv('JWT_ACCESS_SECRET', 'placeholder-jwt-secret-0123456789abcdef');
     const { AppModule } = (await import('./../src/app.module.js')) as { AppModule: Type<unknown> };
 
     moduleFixture = await Test.createTestingModule({ imports: [AppModule] })

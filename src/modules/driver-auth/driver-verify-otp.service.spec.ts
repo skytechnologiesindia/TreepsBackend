@@ -1,6 +1,5 @@
 import { AppException } from '../../common/errors/app.exception.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
-import { verifyHs256Jwt } from '../../common/jwt/hs256-jwt.js';
+import { SessionService } from '../../common/session/session.service.js';
 import { sha256Hex } from '../../common/tokens.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
@@ -10,7 +9,6 @@ import { VerifyOtpService } from '../rider-auth/verify-otp.service.js';
 import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 const PHONE = '+919477172214';
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const T0 = new Date('2026-10-05T10:00:00.000Z').getTime();
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -29,12 +27,13 @@ function setup() {
       return codes[sessionId] === otp;
     },
   };
-  const tokens = new AccessTokenService(SECRET);
+  const sessions = new SessionService(db as unknown as PrismaService);
   const clock = () => new Date(now);
   return {
     db,
-    driver: new DriverVerifyOtpService(db as unknown as PrismaService, provider, clock, tokens),
-    rider: new VerifyOtpService(db as unknown as PrismaService, provider, clock, tokens),
+    driver: new DriverVerifyOtpService(db as unknown as PrismaService, provider, clock, sessions),
+    sessions,
+    rider: new VerifyOtpService(db as unknown as PrismaService, provider, clock, sessions),
     providerCalls: () => providerCalls,
     // A code sent a minute ago, valid for four more minutes, for the given purpose.
     session(purpose: 'DRIVER_AUTH' | 'RIDER_AUTH' = 'DRIVER_AUTH', overrides: Record<string, unknown> = {}, code = '123456') {
@@ -78,11 +77,11 @@ describe('DriverVerifyOtpService: a new phone', () => {
     expect(ctx.db.tables.driverDevice[0]).toMatchObject({ driverId: result.driver.id, deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2', fcmToken: null });
     expect(ctx.db.tables.driverRefreshToken).toHaveLength(1);
     const stored = ctx.db.tables.driverRefreshToken[0];
-    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.refreshToken));
-    expect(JSON.stringify(ctx.db.tables.driverRefreshToken)).not.toContain(result.tokens.refreshToken);
+    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.accessToken));
+    expect(JSON.stringify(ctx.db.tables.driverRefreshToken)).not.toContain(result.tokens.accessToken);
     expect(stored.expiresAt.getTime()).toBe(T0 + 2_592_000 * SECOND);
-    expect(result.tokens.accessTokenExpiresInSeconds).toBe(900);
-    expect(result.tokens.refreshTokenExpiresInSeconds).toBe(2_592_000);
+    expect(Object.keys(result.tokens).sort()).toEqual(['accessToken', 'expiresInSeconds']);
+    expect(result.tokens.expiresInSeconds).toBe(2_592_000);
     // the code is used and the session is finished; no rider rows were touched
     expect(ctx.db.tables.otpSession[0].verifiedAt.getTime()).toBe(T0);
     expect(ctx.db.tables.otpSession[0].consumedAt.getTime()).toBe(T0);
@@ -221,21 +220,72 @@ describe('DriverVerifyOtpService: a failure part-way leaves nothing half-created
   });
 });
 
-describe('the access token role', () => {
+describe('the session role', () => {
   it('is DRIVER for a driver and RIDER for a rider, so the two are never interchangeable', async () => {
     const ctx = setup();
     ctx.session('DRIVER_AUTH');
     const driverResult = await ctx.driver.verifyOtp(dto());
-    const driverClaims = verifyHs256Jwt(driverResult.tokens.accessToken, SECRET, T0 / 1000);
-    expect(driverClaims).toEqual({ iss: 'treeps', sub: driverResult.driver.id, role: 'DRIVER', deviceId: 'device-1', iat: T0 / 1000, exp: T0 / 1000 + 900 });
+    const driverSession = await ctx.sessions.findByToken(driverResult.tokens.accessToken, new Date(T0));
+    expect(driverSession).toMatchObject({ role: 'DRIVER', accountId: driverResult.driver.id, deviceId: 'device-1' });
 
     const other = setup();
     const rider = other.db.addRider();
     other.session('RIDER_AUTH');
     const riderResult = await other.rider.verifyOtp(dto());
-    if (riderResult.isNewRider) throw new Error('unreachable');
-    const riderClaims = verifyHs256Jwt(riderResult.tokens.accessToken, SECRET, T0 / 1000);
-    expect(riderClaims).toMatchObject({ sub: rider.id, role: 'RIDER' });
-    expect(riderClaims.role).not.toBe(driverClaims.role);
+    const riderSession = await other.sessions.findByToken(riderResult.tokens.accessToken, new Date(T0));
+    expect(riderSession).toMatchObject({ role: 'RIDER', accountId: rider.id });
+    expect(riderSession!.role).not.toBe(driverSession!.role);
+  });
+});
+
+describe('one active session per driver (decision 174)', () => {
+  let n = 0;
+  const newer = () => ({ createdAt: new Date(T0 - 50 * SECOND + ++n * SECOND) });
+  it('a login on a second device deletes the first device session and device row at once', async () => {
+    const ctx = setup();
+    ctx.session('DRIVER_AUTH', newer());
+    const first = await ctx.driver.verifyOtp(dto({}, { deviceId: 'phone-1' }));
+    ctx.session('DRIVER_AUTH', newer());
+    const second = await ctx.driver.verifyOtp(dto({}, { deviceId: 'phone-2' }));
+    expect(second.isNewDriver).toBe(false);
+    expect(await ctx.sessions.findByToken(first.tokens.accessToken, new Date(T0))).toBeNull();
+    expect(await ctx.sessions.findByToken(second.tokens.accessToken, new Date(T0))).not.toBeNull();
+    expect(ctx.db.tables.driverRefreshToken).toHaveLength(1);
+    expect(ctx.db.tables.driverDevice.map((d) => d.deviceId)).toEqual(['phone-2']);
+  });
+
+  it('logging in again on the same device replaces its session', async () => {
+    const ctx = setup();
+    ctx.session('DRIVER_AUTH', newer());
+    const first = await ctx.driver.verifyOtp(dto());
+    ctx.session('DRIVER_AUTH', newer());
+    const second = await ctx.driver.verifyOtp(dto());
+    expect(await ctx.sessions.findByToken(first.tokens.accessToken, new Date(T0))).toBeNull();
+    expect(await ctx.sessions.findByToken(second.tokens.accessToken, new Date(T0))).not.toBeNull();
+    expect(ctx.db.tables.driverDevice).toHaveLength(1);
+  });
+
+  it('another driver keeps their session', async () => {
+    const ctx = setup();
+    ctx.db.addDriver({ phoneNumber: '+919477172299' });
+    ctx.session('DRIVER_AUTH', { phoneNumber: '+919477172299', ...newer() });
+    const other = await ctx.driver.verifyOtp(dto({ phoneNumber: '+919477172299' }, { deviceId: 'other-phone' }));
+    ctx.session('DRIVER_AUTH', newer());
+    await ctx.driver.verifyOtp(dto({}, { deviceId: 'phone-1' }));
+    ctx.session('DRIVER_AUTH', newer());
+    await ctx.driver.verifyOtp(dto({}, { deviceId: 'phone-2' }));
+    expect(await ctx.sessions.findByToken(other.tokens.accessToken, new Date(T0))).not.toBeNull();
+  });
+
+  it('riders are unchanged: a second rider device keeps the first session', async () => {
+    const ctx = setup();
+    ctx.db.addRider();
+    ctx.session('RIDER_AUTH', newer());
+    const first = await ctx.rider.verifyOtp(dto({}, { deviceId: 'phone-1' }));
+    ctx.session('RIDER_AUTH', newer());
+    const second = await ctx.rider.verifyOtp(dto({}, { deviceId: 'phone-2' }));
+    expect(await ctx.sessions.findByToken(first.tokens.accessToken, new Date(T0))).not.toBeNull();
+    expect(await ctx.sessions.findByToken(second.tokens.accessToken, new Date(T0))).not.toBeNull();
+    expect(ctx.db.tables.refreshToken).toHaveLength(2);
   });
 });

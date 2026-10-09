@@ -2,13 +2,12 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { CLOCK } from '../../common/clock.js';
-import { verifyHs256Jwt } from '../../common/jwt/hs256-jwt.js';
 import { RateLimiter } from '../../common/rate-limit/rate-limiter.js';
 import { setupApp } from '../../common/setup-app.js';
 import { rawBaseUrl, versionedBaseUrl } from '../../common/testing/base-url.js';
 import { sha256Hex } from '../../common/tokens.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
 import { OTP_PROVIDER, type OtpProvider } from '../otp/provider/otp-provider.js';
 import { RiderAuthController } from './rider-auth.controller.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
@@ -17,7 +16,6 @@ import { VerifyOtpService } from './verify-otp.service.js';
 import { RegisterService } from './register.service.js';
 
 const PHONE = '+919477172214';
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const T0 = new Date('2026-10-05T10:00:00.000Z').getTime();
 const MINUTE = 60_000;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -46,7 +44,7 @@ async function startApp() {
       SendOtpService,
       VerifyOtpService,
       RegisterService,
-      { provide: AccessTokenService, useValue: new AccessTokenService(SECRET) },
+      SessionService,
       { provide: PrismaService, useValue: db },
       { provide: OTP_PROVIDER, useValue: provider },
       { provide: CLOCK, useValue: () => new Date(now) },
@@ -107,11 +105,10 @@ describe('POST /v1/rider/auth/verify-otp', () => {
       expect(Object.keys(reply.data).sort()).toEqual(['isNewRider', 'rider', 'tokens']);
       expect(reply.data.isNewRider).toBe(false);
       expect(reply.data.rider).toMatchObject({ id: rider.id, fullName: 'Asha Verma', phoneNumber: PHONE, status: 'ACTIVE', isPhoneVerified: true });
-      expect(Object.keys(reply.data.tokens).sort()).toEqual(['accessToken', 'accessTokenExpiresInSeconds', 'refreshToken', 'refreshTokenExpiresInSeconds']);
-      expect(reply.data.tokens.accessTokenExpiresInSeconds).toBe(900);
-      expect(reply.data.tokens.refreshTokenExpiresInSeconds).toBe(2_592_000);
-      expect(verifyHs256Jwt(reply.data.tokens.accessToken, SECRET, T0 / 1000)).toMatchObject({ iss: 'treeps', sub: rider.id, role: 'RIDER', deviceId: 'device-1' });
-      expect(ctx.db.tables.refreshToken[0].tokenHash).toBe(sha256Hex(reply.data.tokens.refreshToken));
+      expect(Object.keys(reply.data.tokens).sort()).toEqual(['accessToken', 'expiresInSeconds']);
+      expect(reply.data.tokens.expiresInSeconds).toBe(2_592_000);
+      expect(ctx.db.tables.refreshToken[0]).toMatchObject({ riderId: rider.id, deviceId: 'device-1' });
+      expect(ctx.db.tables.refreshToken[0].tokenHash).toBe(sha256Hex(reply.data.tokens.accessToken));
     });
 
     it('is not served without the /v1 prefix (NOT_FOUND)', async () => {
@@ -147,8 +144,8 @@ describe('POST /v1/rider/auth/verify-otp', () => {
       expect(Object.keys(reply.data).sort()).toEqual(['isNewRider', 'rider', 'tokens']);
       expect(reply.data.isNewRider).toBe(true);
       expect(reply.data.rider).toMatchObject({ fullName: null, email: null, status: 'PROFILE_PENDING', isPhoneVerified: true, isProfileComplete: false });
-      expect(reply.data.tokens.accessToken.split('.')).toHaveLength(3);
-      expect(reply.data.tokens.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(reply.data.tokens.accessToken.split('.')).toHaveLength(1); // opaque, not a JWT
+      expect(reply.data.tokens.accessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
       // every date-time carries its Indian-time twin; the ISO value is unchanged
       expect(reply.data.rider.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
       expect(reply.data.rider.createdAtIst).toBe('05-10-2026 15:30:00'); // 2026-10-05T10:00:00.000Z is 15:30 in India

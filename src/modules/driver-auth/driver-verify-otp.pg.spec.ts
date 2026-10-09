@@ -1,4 +1,4 @@
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { FakeOtpProvider } from '../otp/provider/fake-otp.provider.js';
@@ -8,7 +8,6 @@ import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 // Race test against REAL Postgres, because only a real database has row locks and real unique
 // indexes. Skipped unless RUN_PG_TESTS=1; uses only the scratch database named below, never
 // treeps_db. How to run: docs/api/driver-verify-otp.md, "Race tests".
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const CODE = '123456';
 
 describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/driver/auth/verify-otp races, real Postgres (${SCRATCH_DRIVER_DB_NAME})`, () => {
@@ -45,7 +44,7 @@ describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/driver/auth/verify-otp races, real 
         };
       },
     });
-    return new DriverVerifyOtpService(prisma as unknown as PrismaService, new FakeOtpProvider(CODE), () => new Date(), new AccessTokenService(SECRET));
+    return new DriverVerifyOtpService(prisma as unknown as PrismaService, new FakeOtpProvider(CODE), () => new Date(), new SessionService(prisma as unknown as PrismaService));
   }
 
   async function session(phoneNumber: string) {

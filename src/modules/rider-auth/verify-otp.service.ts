@@ -3,10 +3,10 @@ import { OtpPurpose, RiderStatus, type Rider } from '@prisma/client';
 import { CLOCK, type Clock } from '../../common/clock.js';
 import { violatedUniqueIndex } from '../../common/database/unique-violation.js';
 import { AppException } from '../../common/errors/app.exception.js';
-import { newOpaqueToken, sha256Hex } from '../../common/tokens.js';
-import { REFRESH_TOKEN_TTL_SECONDS } from '../../config/tokens.js';
+import { RIDER_ROLE } from '../../config/tokens.js';
+import { SessionService } from '../../common/session/session.service.js';
+import type { SessionTokens } from '../../common/session/session.types.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { AccessTokenService, type AuthTokens } from '../../common/jwt/access-token.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { markCodeUsed, OtpCodeChecker } from '../otp/otp-code-checker.js';
 import { OTP_PROVIDER, type OtpProvider } from '../otp/provider/otp-provider.js';
@@ -16,7 +16,7 @@ import { riderView, type RiderView } from './rider-view.js';
 export interface VerifyOtpResult {
   isNewRider: boolean;
   rider: RiderView;
-  tokens: AuthTokens;
+  tokens: SessionTokens;
 }
 
 @Injectable()
@@ -27,7 +27,7 @@ export class VerifyOtpService {
     private readonly prisma: PrismaService,
     @Inject(OTP_PROVIDER) otpProvider: OtpProvider,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly accessTokens: AccessTokenService,
+    private readonly sessions: SessionService,
   ) {
     this.codeChecker = new OtpCodeChecker(prisma, otpProvider);
   }
@@ -60,12 +60,12 @@ export class VerifyOtpService {
   }
 
   // A phone with no rider: ONE transaction marks the code used, creates the Rider (PROFILE_PENDING, no
-  // name or email yet), the device and the refresh token. If any step fails nothing is written and the
+  // name or email yet), the device and the session. If any step fails nothing is written and the
   // code stays usable. In Express terms, a Mongo multi-document transaction. The reply has the same
   // shape as a login, with isNewRider true.
   private async createRider(sessionId: string, dto: VerifyOtpDto, now: Date): Promise<VerifyOtpResult> {
     const { device } = dto;
-    const refreshToken = newOpaqueToken();
+    let tokens!: SessionTokens;
 
     let rider: Rider;
     try {
@@ -95,15 +95,7 @@ export class VerifyOtpService {
             lastSeenAt: now,
           },
         });
-        await tx.refreshToken.create({
-          data: {
-            tokenHash: sha256Hex(refreshToken),
-            riderId: created.id,
-            deviceId: device.deviceId,
-            expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1000),
-            createdAt: now,
-          },
-        });
+        tokens = await this.sessions.create({ role: RIDER_ROLE, accountId: created.id, deviceId: device.deviceId, now }, tx);
         return created;
       });
     } catch (error) {
@@ -111,14 +103,14 @@ export class VerifyOtpService {
       if (violatedUniqueIndex(error) === 'phoneNumber') throw new AppException('CONFLICT');
       throw error;
     }
-    return this.reply(true, rider, refreshToken, dto.device.deviceId, now);
+    return this.reply(true, rider, tokens);
   }
 
-  // Login for an ACTIVE or PROFILE_PENDING rider: device, refresh token, lastLoginAt and consumedAt change together
+  // Login for an ACTIVE or PROFILE_PENDING rider: device, session, lastLoginAt and consumedAt change together
   // or not at all (one transaction).
   private async login(riderId: string, sessionId: string, dto: VerifyOtpDto, now: Date): Promise<VerifyOtpResult> {
     const { device } = dto;
-    const refreshToken = newOpaqueToken();
+    let tokens!: SessionTokens;
 
     const rider = await this.prisma.$transaction(async (tx) => {
       await tx.device.upsert({
@@ -138,35 +130,17 @@ export class VerifyOtpService {
           ...(device.fcmToken !== undefined ? { fcmToken: device.fcmToken } : {}),
         },
       });
-      // One refresh token per device: the earlier one stops working.
-      await tx.refreshToken.updateMany({ where: { riderId, deviceId: device.deviceId, revokedAt: null }, data: { revokedAt: now } });
-      await tx.refreshToken.create({
-        data: {
-          tokenHash: sha256Hex(refreshToken),
-          riderId,
-          deviceId: device.deviceId,
-          expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1000),
-          createdAt: now,
-        },
-      });
+      // One session per device: the earlier one for this device is replaced; other devices keep theirs
+      // (rider single-device is TO DECIDE, decision 177).
+      tokens = await this.sessions.create({ role: RIDER_ROLE, accountId: riderId, deviceId: device.deviceId, now }, tx);
       await tx.otpSession.update({ where: { id: sessionId }, data: { consumedAt: now } });
       return tx.rider.update({ where: { id: riderId }, data: { lastLoginAt: now } });
     });
 
-    return this.reply(false, rider, refreshToken, device.deviceId, now);
+    return this.reply(false, rider, tokens);
   }
 
-  private reply(isNewRider: boolean, rider: Rider, refreshToken: string, deviceId: string, now: Date): VerifyOtpResult {
-    const access = this.accessTokens.issue({ riderId: rider.id, deviceId, now });
-    return {
-      isNewRider,
-      rider: riderView(rider),
-      tokens: {
-        accessToken: access.token,
-        accessTokenExpiresInSeconds: access.expiresInSeconds,
-        refreshToken,
-        refreshTokenExpiresInSeconds: REFRESH_TOKEN_TTL_SECONDS,
-      },
-    };
+  private reply(isNewRider: boolean, rider: Rider, tokens: SessionTokens): VerifyOtpResult {
+    return { isNewRider, rider: riderView(rider), tokens };
   }
 }

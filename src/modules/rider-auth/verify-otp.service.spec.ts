@@ -1,15 +1,13 @@
 import { AppException } from '../../common/errors/app.exception.js';
-import { verifyHs256Jwt } from '../../common/jwt/hs256-jwt.js';
 import { sha256Hex } from '../../common/tokens.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import type { OtpProvider } from '../otp/provider/otp-provider.js';
 import { InMemoryAuthDb } from './testing/in-memory-auth-db.js';
 import { VerifyOtpService } from './verify-otp.service.js';
 
 const PHONE = '+919477172214';
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const T0 = new Date('2026-10-05T10:00:00.000Z').getTime();
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -30,7 +28,7 @@ function setup() {
       return codes[sessionId] === otp;
     },
   };
-  const service = new VerifyOtpService(db as unknown as PrismaService, provider, () => new Date(now), new AccessTokenService(SECRET));
+  const service = new VerifyOtpService(db as unknown as PrismaService, provider, () => new Date(now), new SessionService(db as unknown as PrismaService));
   return {
     db,
     service,
@@ -92,9 +90,9 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
       isProfileComplete: false,
       createdAt: '2026-01-02T03:04:05.678Z',
     });
-    expect(result.tokens.accessTokenExpiresInSeconds).toBe(900);
-    expect(result.tokens.refreshTokenExpiresInSeconds).toBe(2_592_000);
-    expect(result.tokens.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(Object.keys(result.tokens).sort()).toEqual(['accessToken', 'expiresInSeconds']);
+    expect(result.tokens.expiresInSeconds).toBe(2_592_000);
+    expect(result.tokens.accessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
     // session: code used and session finished
     expect(session.verifiedAt.getTime()).toBe(T0);
@@ -102,27 +100,25 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
     expect(session.attempts).toBe(1);
     // rider: lastLoginAt set
     expect(rider.lastLoginAt.getTime()).toBe(T0);
-    // one device, one refresh token that stores only the hash
+    // one device, one session that stores only the hash
     expect(ctx.db.tables.device).toHaveLength(1);
     expect(ctx.db.tables.device[0]).toMatchObject({ riderId: rider.id, deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2', fcmToken: null });
     expect(ctx.db.tables.refreshToken).toHaveLength(1);
     const stored = ctx.db.tables.refreshToken[0];
-    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.refreshToken));
-    expect(stored.tokenHash).not.toBe(result.tokens.refreshToken);
-    expect(JSON.stringify(ctx.db.tables.refreshToken)).not.toContain(result.tokens.refreshToken);
+    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.accessToken));
+    expect(stored.tokenHash).not.toBe(result.tokens.accessToken);
+    expect(JSON.stringify(ctx.db.tables.refreshToken)).not.toContain(result.tokens.accessToken);
     expect(stored.expiresAt.getTime()).toBe(T0 + 2_592_000 * SECOND);
     expect(stored.revokedAt).toBeNull();
   });
 
-  it('issues an HS256 access token with the documented claims and a 15 minute life', async () => {
+  it('the session token resolves to this rider and device through SessionService', async () => {
     const ctx = setup();
     const rider = ctx.db.addRider();
     ctx.session();
     const result = await ctx.service.verifyOtp(dto());
-    if (result.isNewRider) throw new Error('unreachable');
-    const claims = verifyHs256Jwt(result.tokens.accessToken, SECRET, T0 / 1000);
-    expect(claims).toEqual({ iss: 'treeps', sub: rider.id, role: 'RIDER', deviceId: 'device-1', iat: T0 / 1000, exp: T0 / 1000 + 900 });
-    expect(() => verifyHs256Jwt(result.tokens.accessToken, SECRET, T0 / 1000 + 900)).toThrow(/expired/);
+    const found = await new SessionService(ctx.db as unknown as PrismaService).findByToken(result.tokens.accessToken, new Date(T0));
+    expect(found).toMatchObject({ role: 'RIDER', accountId: rider.id, deviceId: 'device-1' });
   });
 
   it('never returns the provider session id, attempts, token hashes, deletedAt or lastLoginAt', async () => {
@@ -150,10 +146,10 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
       const first = await login(ctx);
       const second = await login(ctx);
       const rows = ctx.db.tables.refreshToken;
-      expect(rows).toHaveLength(2);
-      expect(rows.filter((r) => r.revokedAt === null)).toHaveLength(1);
-      expect(rows.find((r) => r.tokenHash === sha256Hex(first.tokens.refreshToken))!.revokedAt).not.toBeNull();
-      expect(rows.find((r) => r.tokenHash === sha256Hex(second.tokens.refreshToken))!.revokedAt).toBeNull();
+      // the same device keeps one session: the first token is gone, the second works
+      expect(rows).toHaveLength(1);
+      expect(rows[0].tokenHash).toBe(sha256Hex(second.tokens.accessToken));
+      expect(rows[0].tokenHash).not.toBe(sha256Hex(first.tokens.accessToken));
       expect(ctx.db.tables.device).toHaveLength(1);
     });
 
@@ -212,9 +208,9 @@ describe('VerifyOtpService: a phone with no rider', () => {
       isProfileComplete: false,
       createdAt: new Date(T0).toISOString(),
     });
-    expect(result.tokens.accessTokenExpiresInSeconds).toBe(900);
-    expect(result.tokens.refreshTokenExpiresInSeconds).toBe(2_592_000);
-    expect(result.tokens.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(Object.keys(result.tokens).sort()).toEqual(['accessToken', 'expiresInSeconds']);
+    expect(result.tokens.expiresInSeconds).toBe(2_592_000);
+    expect(result.tokens.accessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
     expect(ctx.db.tables.rider).toHaveLength(1);
     expect(ctx.db.tables.rider[0]).toMatchObject({ phoneNumber: PHONE, fullName: null, email: null, status: 'PROFILE_PENDING', isPhoneVerified: true, isProfileComplete: false });
@@ -223,8 +219,8 @@ describe('VerifyOtpService: a phone with no rider', () => {
     expect(ctx.db.tables.device[0]).toMatchObject({ riderId: result.rider.id, deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2', fcmToken: null });
     expect(ctx.db.tables.refreshToken).toHaveLength(1);
     const stored = ctx.db.tables.refreshToken[0];
-    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.refreshToken));
-    expect(JSON.stringify(ctx.db.tables.refreshToken)).not.toContain(result.tokens.refreshToken);
+    expect(stored.tokenHash).toBe(sha256Hex(result.tokens.accessToken));
+    expect(JSON.stringify(ctx.db.tables.refreshToken)).not.toContain(result.tokens.accessToken);
     expect(stored.expiresAt.getTime()).toBe(T0 + 2_592_000 * SECOND);
     // the code is used and the session finished; no registration token is stored
     expect(session.verifiedAt.getTime()).toBe(T0);
@@ -233,12 +229,12 @@ describe('VerifyOtpService: a phone with no rider', () => {
     expect(session.registrationExpiresAt).toBeNull();
   });
 
-  it('issues a RIDER access token for the new rider', async () => {
+  it('the new rider session token resolves to a RIDER session', async () => {
     const ctx = setup();
     ctx.session();
     const result = await ctx.service.verifyOtp(dto());
-    const claims = verifyHs256Jwt(result.tokens.accessToken, SECRET, T0 / 1000);
-    expect(claims).toEqual({ iss: 'treeps', sub: result.rider.id, role: 'RIDER', deviceId: 'device-1', iat: T0 / 1000, exp: T0 / 1000 + 900 });
+    const found = await new SessionService(ctx.db as unknown as PrismaService).findByToken(result.tokens.accessToken, new Date(T0));
+    expect(found).toMatchObject({ role: 'RIDER', accountId: result.rider.id, deviceId: 'device-1' });
   });
 
   it('stores fcmToken when the app sends one', async () => {
@@ -322,7 +318,7 @@ describe('VerifyOtpService: a returning PROFILE_PENDING rider', () => {
     expect(second.isNewRider).toBe(false);
     expect(second.rider.id).toBe(first.rider.id);
     expect(second.rider.status).toBe('PROFILE_PENDING');
-    expect(second.tokens.refreshToken).not.toBe(first.tokens.refreshToken);
+    expect(second.tokens.accessToken).not.toBe(first.tokens.accessToken);
     expect(ctx.db.tables.rider).toHaveLength(1);
   });
 });

@@ -100,7 +100,6 @@ Messages for the estimate codes are copied from `docs/api/estimate.md`, where th
 | OTP_ATTEMPTS_EXCEEDED | 429 | "Too many wrong codes. Please ask for a new code." (proposed) | otp |
 | OTP_PROVIDER_ERROR | 503 | "We couldn't reach the code service. Please try again." (proposed) | null |
 | EMAIL_IN_USE | 409 | "This email is already in use." (proposed) | email |
-| REFRESH_TOKEN_INVALID | 401 | "Your session has ended. Please log in again." (proposed) | null |
 
 Where the registry lives in code: `src/common/errors/error-registry.ts`. Controllers throw a single `AppException` (`src/common/errors/app.exception.ts`) with a code and optional `{ field, details }`. Status and message come only from the registry; `details` is accepted only with INVALID_INPUT and the constructor rejects it on any other code.
 

@@ -11,13 +11,11 @@ import {
 
 const VALID_URL = 'postgresql://user:pass@localhost:5432/db?schema=public';
 // Placeholders only: nothing here is a real key or secret.
-const JWT_SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const VALID = {
   DATABASE_URL: VALID_URL,
   NODE_ENV: 'development',
   OTP_PROVIDER: 'twofactor',
   TWOFACTOR_API_KEY: 'placeholder-2factor-api-key',
-  JWT_ACCESS_SECRET: JWT_SECRET,
 };
 // The fake provider needs both settings and a 6-digit code (and is refused in production).
 const FAKE = {
@@ -26,7 +24,6 @@ const FAKE = {
   OTP_PROVIDER: 'fake',
   ALLOW_FAKE_OTP: 'true',
   FAKE_OTP_CODE: '123456',
-  JWT_ACCESS_SECRET: JWT_SECRET,
 };
 
 function problemsOf(config: Record<string, unknown>): EnvProblem[] {
@@ -52,7 +49,6 @@ describe('validateEnv', () => {
       expect(DEFAULT_PORT).toBe(3000);
       expect(result.OTP_PROVIDER).toBe('twofactor');
       expect(result.TRUST_PROXY_HOPS).toBe(0);
-      expect(result.JWT_ACCESS_SECRET).toBe(JWT_SECRET);
     });
 
     it('converts PORT explicitly to a number', () => {
@@ -298,27 +294,13 @@ describe('validateEnv', () => {
     });
   });
 
-  describe('JWT_ACCESS_SECRET', () => {
-    it.each([[undefined], [null], ['']])('%j is REQUIRED (there is no default)', (value) => {
-      expect(reasonsFor('JWT_ACCESS_SECRET', { ...VALID, JWT_ACCESS_SECRET: value })).toEqual(['REQUIRED']);
-    });
-
-    it.each([['x'], ['x'.repeat(31)], ['é'.repeat(31)]])('%j is TOO_SHORT (under 32 characters)', (value) => {
-      expect(reasonsFor('JWT_ACCESS_SECRET', { ...VALID, JWT_ACCESS_SECRET: value })).toEqual(['TOO_SHORT']);
-    });
-
-    it.each([['x'.repeat(32)], ['x'.repeat(200)], ['é'.repeat(32)]])('accepts a secret of %j length', (value) => {
-      expect(validateEnv({ ...VALID, JWT_ACCESS_SECRET: value }).JWT_ACCESS_SECRET).toBe(value);
-    });
-  });
-
   describe('the new keys never put a value in the error', () => {
     const SECRETS = ['SECRET-JWT-VALUE', 'SECRET-KEY-VALUE', 'SECRET-CODE-VALUE', 'SECRET-ALLOW-VALUE', 'SECRET-HOPS-VALUE'];
     const bad = [
-      { ...VALID, JWT_ACCESS_SECRET: SECRETS[0], TWOFACTOR_API_KEY: ' ' + SECRETS[1] },
+      { ...VALID, TWOFACTOR_API_KEY: ' ' + SECRETS[1] },
       { ...FAKE, FAKE_OTP_CODE: SECRETS[2], ALLOW_FAKE_OTP: SECRETS[3] },
       { ...VALID, TRUST_PROXY_HOPS: SECRETS[4] },
-      { ...FAKE, NODE_ENV: 'production', FAKE_OTP_CODE: '123456', JWT_ACCESS_SECRET: SECRETS[0] },
+      { ...FAKE, NODE_ENV: 'production', FAKE_OTP_CODE: '123456' },
     ];
 
     it.each(bad.map((config, i) => [i, config] as const))('case %d: message, stack and own properties hold no value', (_i, config) => {
@@ -340,7 +322,7 @@ describe('validateEnv', () => {
     });
 
     it('names the key and the reason', () => {
-      expect(() => validateEnv({ ...VALID, JWT_ACCESS_SECRET: 'short' })).toThrow(/JWT_ACCESS_SECRET \(TOO_SHORT\)/);
+      expect(() => validateEnv({ ...VALID, TRUST_PROXY_HOPS: '1x' })).toThrow(/TRUST_PROXY_HOPS \(INVALID_FORMAT\)/);
     });
   });
 
@@ -359,11 +341,10 @@ describe('validateEnv', () => {
         { variable: 'PORT', reason: 'OUT_OF_RANGE' },
         { variable: 'NODE_ENV', reason: 'REQUIRED' },
         { variable: 'OTP_PROVIDER', reason: 'REQUIRED' },
-        { variable: 'JWT_ACCESS_SECRET', reason: 'REQUIRED' },
       ]);
       expect(error!.message).toBe(
         'Invalid environment configuration: DATABASE_URL (REQUIRED), PORT (OUT_OF_RANGE), NODE_ENV (REQUIRED), ' +
-          'OTP_PROVIDER (REQUIRED), JWT_ACCESS_SECRET (REQUIRED). ' +
+          'OTP_PROVIDER (REQUIRED). ' +
           'See docs/standards/input-validation.md section 6 and .env.example.',
       );
     });
@@ -446,7 +427,6 @@ describe('validateEnv', () => {
       ['NODE_ENV', [undefined, 'staging']],
       ['OTP_PROVIDER', [undefined, 'sms']],
       ['TRUST_PROXY_HOPS', ['1x', '11']],
-      ['JWT_ACCESS_SECRET', [undefined, 'short']],
     ] as const)('%s: the reasons the code can give are exactly the ones the doc lists', (variable, badValues) => {
       const produced = new Set<string>();
       for (const value of badValues) {

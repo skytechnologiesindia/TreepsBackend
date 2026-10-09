@@ -9,12 +9,11 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
 import { OTP_PROVIDER, type OtpProvider } from '../otp/provider/otp-provider.js';
 import { inMemoryPrisma } from '../otp/testing/in-memory-prisma.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
 import { RiderAuthController } from '../rider-auth/rider-auth.controller.js';
 import { VerifyOtpService } from '../rider-auth/verify-otp.service.js';
 import { RegisterService } from '../rider-auth/register.service.js';
 import { DriverAuthController } from './driver-auth.controller.js';
-import { DriverSessionService } from './driver-session.service.js';
 import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 const SECOND = 1000;
@@ -44,8 +43,7 @@ async function startApp(options: { failingProvider?: boolean } = {}) {
       VerifyOtpService,
       RegisterService,
       DriverVerifyOtpService,
-      DriverSessionService,
-      { provide: AccessTokenService, useValue: new AccessTokenService('placeholder-jwt-secret-0123456789abcdef') },
+      SessionService,
       { provide: PrismaService, useValue: prisma },
       { provide: OTP_PROVIDER, useValue: provider },
       { provide: CLOCK, useValue: () => new Date(now) },

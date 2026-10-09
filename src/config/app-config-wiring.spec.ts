@@ -4,11 +4,10 @@ import { validateEnv } from './env.validation.js';
 // AppModule calls ConfigModule.forRoot(...) when it is defined. forRoot is async in
 // @nestjs/config 12, so a failing validate is a REJECTED PROMISE, not a thrown error. The spy
 // attaches a handler in the same tick, so Vitest does not report an unhandled rejection.
-// Placeholders only. AppModule now needs the OTP and JWT keys as well as the database and mode.
+// Placeholders only. AppModule now needs the OTP keys as well as the database and mode.
 const OTHER_REQUIRED = {
   OTP_PROVIDER: 'twofactor',
   TWOFACTOR_API_KEY: 'placeholder-2factor-api-key',
-  JWT_ACCESS_SECRET: 'placeholder-jwt-secret-0123456789abcdef',
 };
 const captured: Promise<unknown>[] = [];
 const original = ConfigModule.forRoot.bind(ConfigModule);
@@ -70,7 +69,6 @@ describe('AppModule wiring of the environment validation', () => {
       OTP_PROVIDER: 'fake',
       ALLOW_FAKE_OTP: 'true',
       FAKE_OTP_CODE: '654321',
-      JWT_ACCESS_SECRET: OTHER_REQUIRED.JWT_ACCESS_SECRET,
     });
     const error = await captured[0].then(
       () => undefined,
@@ -78,7 +76,6 @@ describe('AppModule wiring of the environment validation', () => {
     );
     expect(error?.message).toMatch(/OTP_PROVIDER \(NOT_ALLOWED\)/);
     expect(error?.message).not.toContain('654321');
-    expect(error?.message).not.toContain(OTHER_REQUIRED.JWT_ACCESS_SECRET);
   });
 
   it('a missing NODE_ENV is REQUIRED (tested on forRoot directly, so it does not depend on .env)', async () => {

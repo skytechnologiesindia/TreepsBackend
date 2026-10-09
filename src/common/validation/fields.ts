@@ -146,7 +146,7 @@ export function AppVersion(): FieldType {
   };
 }
 
-// A registration or refresh token: base64url of 32 random bytes, always 43 characters.
+// An opaque token: base64url of 32 random bytes, always 43 characters (the shape of a session token). No route uses it for input now, so it is kept as a shared type.
 const OPAQUE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 export function OpaqueToken(): FieldType {
   return {

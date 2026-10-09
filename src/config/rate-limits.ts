@@ -20,7 +20,6 @@ export const RATE_LIMITS = {
   },
   // docs/api/rider-register.md
   register: { ip: { limit: 10, windowMs: HOUR_MS } },
-  // docs/api/rider-refresh.md and rider-logout.md (decision 137)
-  refresh: { ip: { limit: 120, windowMs: HOUR_MS } },
+  // docs/api/rider-logout.md and driver-logout.md (decision 137)
   logout: { ip: { limit: 120, windowMs: HOUR_MS } },
 } as const;

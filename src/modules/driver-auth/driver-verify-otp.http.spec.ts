@@ -2,9 +2,9 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { CLOCK } from '../../common/clock.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
-import { verifyHs256Jwt } from '../../common/jwt/hs256-jwt.js';
+import { SessionService } from '../../common/session/session.service.js';
 import { RateLimiter } from '../../common/rate-limit/rate-limiter.js';
+import { sha256Hex } from '../../common/tokens.js';
 import { setupApp } from '../../common/setup-app.js';
 import { rawBaseUrl, versionedBaseUrl } from '../../common/testing/base-url.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -16,12 +16,10 @@ import { RiderAuthController } from '../rider-auth/rider-auth.controller.js';
 import { InMemoryAuthDb } from '../rider-auth/testing/in-memory-auth-db.js';
 import { VerifyOtpService } from '../rider-auth/verify-otp.service.js';
 import { DriverAuthController } from './driver-auth.controller.js';
-import { DriverSessionService } from './driver-session.service.js';
 import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 const PHONE = '+919477172214';
 const CODE = '123456';
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const T0 = new Date('2026-10-05T10:00:00.000Z').getTime();
 const MINUTE = 60_000;
 
@@ -37,8 +35,7 @@ async function startApp() {
       VerifyOtpService,
       RegisterService,
       DriverVerifyOtpService,
-      DriverSessionService,
-      { provide: AccessTokenService, useValue: new AccessTokenService(SECRET) },
+      SessionService,
       { provide: PrismaService, useValue: db },
       { provide: OTP_PROVIDER, useValue: new FakeOtpProvider(CODE) },
       { provide: CLOCK, useValue: () => new Date(T0) },
@@ -92,8 +89,10 @@ describe('POST /v1/driver/auth/verify-otp', () => {
     expect(Object.keys(reply.data).sort()).toEqual(['driver', 'isNewDriver', 'tokens']);
     expect(reply.data.isNewDriver).toBe(true);
     expect(reply.data.driver).toEqual({ id: ctx.db.tables.driver[0].id, phoneNumber: PHONE, status: 'DOCUMENTS_PENDING', createdAt: '2026-10-05T10:00:00.000Z', createdAtIst: '05-10-2026 15:30:00' });
-    expect(Object.keys(reply.data.tokens).sort()).toEqual(['accessToken', 'accessTokenExpiresInSeconds', 'refreshToken', 'refreshTokenExpiresInSeconds']);
-    expect(verifyHs256Jwt(reply.data.tokens.accessToken, SECRET, T0 / 1000)).toMatchObject({ role: 'DRIVER', sub: reply.data.driver.id });
+    expect(Object.keys(reply.data.tokens).sort()).toEqual(['accessToken', 'expiresInSeconds']);
+    expect(reply.data.tokens.accessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(reply.data.tokens.expiresInSeconds).toBe(2_592_000);
+    expect(ctx.db.tables.driverRefreshToken[0].tokenHash).toBe(sha256Hex(reply.data.tokens.accessToken));
   });
 
   it('an existing driver: 200 with isNewDriver false', async () => {

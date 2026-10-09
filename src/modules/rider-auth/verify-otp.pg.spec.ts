@@ -1,4 +1,4 @@
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { FakeOtpProvider } from '../otp/provider/fake-otp.provider.js';
@@ -8,7 +8,6 @@ import { VerifyOtpService } from './verify-otp.service.js';
 // Race test against REAL Postgres, because only a real database has row locks and real unique
 // indexes. Skipped unless RUN_PG_TESTS=1; uses only the scratch database named below, never
 // treeps_db. How to run: docs/api/rider-verify-otp.md, "Race tests".
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const CODE = '123456';
 
 describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/rider/auth/verify-otp races, real Postgres (${SCRATCH_RIDER_VERIFY_DB_NAME})`, () => {
@@ -29,7 +28,7 @@ describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/rider/auth/verify-otp races, real P
   });
 
   const serviceOver = (prisma: unknown) =>
-    new VerifyOtpService(prisma as PrismaService, new FakeOtpProvider(CODE), () => new Date(), new AccessTokenService(SECRET));
+    new VerifyOtpService(prisma as PrismaService, new FakeOtpProvider(CODE), () => new Date(), new SessionService(prisma as PrismaService));
 
   // Holds every caller of $transaction until `callers` of them have arrived. The code check and the
   // rider lookup run before the transaction, so by then every request has already passed them: the

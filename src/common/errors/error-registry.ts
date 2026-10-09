@@ -50,10 +50,6 @@ export const ERROR_REGISTRY = {
     message: "We couldn't reach the code service. Please try again.",
   },
   EMAIL_IN_USE: { status: 409, message: 'This email is already in use.' },
-  REFRESH_TOKEN_INVALID: {
-    status: 401,
-    message: 'Your session has ended. Please log in again.',
-  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_REGISTRY;

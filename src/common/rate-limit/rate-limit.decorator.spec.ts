@@ -24,13 +24,12 @@ describe('RATE_LIMITS (the numbers of the approved docs)', () => {
     expect(RATE_LIMITS.sendOtp.resendCooldownMs).toBe(30_000);
     expect(RATE_LIMITS.verifyOtp.phone).toEqual({ limit: 10, windowMs: HOUR });
     expect(RATE_LIMITS.register.ip).toEqual({ limit: 10, windowMs: HOUR });
-    expect(RATE_LIMITS.refresh.ip).toEqual({ limit: 120, windowMs: HOUR });
     expect(RATE_LIMITS.logout.ip).toEqual({ limit: 120, windowMs: HOUR });
     expect('ip' in RATE_LIMITS.verifyOtp).toBe(false); // no per-IP limit on verify-otp in the MVP
   });
 
   it('every number is accepted by the decorator', () => {
-    for (const rule of [RATE_LIMITS.sendOtp.ip, RATE_LIMITS.sendOtp.phone, RATE_LIMITS.verifyOtp.phone, RATE_LIMITS.register.ip, RATE_LIMITS.refresh.ip, RATE_LIMITS.logout.ip]) {
+    for (const rule of [RATE_LIMITS.sendOtp.ip, RATE_LIMITS.sendOtp.phone, RATE_LIMITS.verifyOtp.phone, RATE_LIMITS.register.ip, RATE_LIMITS.logout.ip]) {
       expect(() => RateLimit({ name: 'x', ip: rule })).not.toThrow();
     }
   });

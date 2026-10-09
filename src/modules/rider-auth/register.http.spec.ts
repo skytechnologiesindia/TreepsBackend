@@ -2,12 +2,12 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { CLOCK } from '../../common/clock.js';
-import { signHs256Jwt } from '../../common/jwt/hs256-jwt.js';
 import { RateLimiter } from '../../common/rate-limit/rate-limiter.js';
 import { setupApp } from '../../common/setup-app.js';
 import { rawBaseUrl, versionedBaseUrl } from '../../common/testing/base-url.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { AccessTokenService } from '../../common/jwt/access-token.service.js';
+import { SessionService } from '../../common/session/session.service.js';
+import { newOpaqueToken } from '../../common/tokens.js';
 import { FakeOtpProvider } from '../otp/provider/fake-otp.provider.js';
 import { OTP_PROVIDER } from '../otp/provider/otp-provider.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
@@ -18,24 +18,23 @@ import { VerifyOtpService } from './verify-otp.service.js';
 
 const PHONE = '+919477172214';
 const FAKE_CODE = '123456';
-const SECRET = 'placeholder-jwt-secret-0123456789abcdef';
 const T0 = new Date('2026-10-05T10:00:00.000Z').getTime();
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const device = { deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2' };
 
-// Real HTTP, real pipe, filter, interceptors and guards (the JWT guard included). The database and
+// Real HTTP, real pipe, filter, interceptors and guards (the session guard included). The database and
 // the clock are test stand-ins; the OTP provider is the real FakeOtpProvider.
 async function startApp() {
   let now = T0;
   const db = new InMemoryAuthDb();
-  const tokens = new AccessTokenService(SECRET);
+  const sessions = new SessionService(db as unknown as PrismaService);
   const moduleRef = await Test.createTestingModule({
     controllers: [RiderAuthController],
     providers: [
       SendOtpService,
       VerifyOtpService,
       RegisterService,
-      { provide: AccessTokenService, useValue: tokens },
+      SessionService,
       { provide: PrismaService, useValue: db },
       { provide: OTP_PROVIDER, useValue: new FakeOtpProvider(FAKE_CODE) },
       { provide: CLOCK, useValue: () => new Date(now) },
@@ -51,13 +50,14 @@ async function startApp() {
     db,
     advance: (ms: number) => (now += ms),
     // A rider that verify-otp created (no name, no email, PROFILE_PENDING) and a RIDER access token.
-    pendingRider(overrides: Record<string, unknown> = {}) {
+    // A rider that verify-otp created: no name, no email, PROFILE_PENDING, plus a real session token.
+    async pendingRider(overrides: Record<string, unknown> = {}) {
       const rider = db.addRider({ phoneNumber: PHONE, fullName: null, registeredCity: null, registeredState: null, status: 'PROFILE_PENDING', ...overrides });
-      const token = tokens.issue({ riderId: rider.id as string, deviceId: 'device-1', now: new Date(now) }).token;
+      const token = (await sessions.create({ role: 'RIDER', accountId: rider.id as string, deviceId: 'device-1', now: new Date(now) })).accessToken;
       return { rider, token };
     },
-    riderToken: (riderId: string) => tokens.issue({ riderId, deviceId: 'device-1', now: new Date(now) }).token,
-    driverToken: () => tokens.issueForDriver({ driverId: 'driver-1', deviceId: 'device-1', now: new Date(now) }).token,
+    riderToken: async (accountId: string) => (await sessions.create({ role: 'RIDER', accountId, deviceId: 'device-1', now: new Date(now) })).accessToken,
+    driverToken: async () => (await sessions.create({ role: 'DRIVER', accountId: 'driver-1', deviceId: 'device-1', now: new Date(now) })).accessToken,
   };
 }
 type Ctx = Awaited<ReturnType<typeof startApp>>;
@@ -85,7 +85,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('success', () => {
     it('a valid token completes the profile: 200, standard envelope, ACTIVE, isProfileComplete true, no tokens', async () => {
-      const { rider, token } = ctx.pendingRider();
+      const { rider, token } = await ctx.pendingRider();
       const { res, body: reply } = await register(ctx.app, body({ email: 'asha@example.com', registeredCity: ' Ranchi ' }), token);
       expect(res.status).toBe(200);
       expect(reply.success).toBe(true);
@@ -110,7 +110,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     });
 
     it('has the same rider keys as verify-otp', async () => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       const completed = (await register(ctx.app, body(), token)).body.data.rider;
       await call(ctx.app, 'send-otp', { phoneNumber: '+919477172299' });
       const verified = await call(ctx.app, 'verify-otp', { phoneNumber: '+919477172299', otp: FAKE_CODE, device });
@@ -118,14 +118,14 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     });
 
     it('is not served without the /v1 prefix (NOT_FOUND)', async () => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       const { res, body: reply } = await register(ctx.app, body(), token, 'raw');
       expect(res.status).toBe(404);
       expect(reply.error.code).toBe('NOT_FOUND');
     });
 
     it.each(['Anita Kumari', "O'Brien", 'Dr. Singh', 'Mary-Jane', 'अनीता कुमारी'])('accepts the name %s', async (fullName) => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       const { res, body: reply } = await register(ctx.app, body({ fullName }), token);
       expect(res.status).toBe(200);
       expect(reply.data.rider.fullName).toBe(fullName);
@@ -136,7 +136,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
       ['null', { registeredCity: null, registeredState: null }],
       ['whitespace only', { registeredCity: '   ', registeredState: '\t ' }],
     ])('city and state %s on a new profile are stored as null', async (_name, extra) => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       const { res, body: reply } = await register(ctx.app, body(extra), token);
       expect(res.status).toBe(200);
       expect(reply.data.rider.registeredCity).toBeNull();
@@ -146,7 +146,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('called twice', () => {
     it('saves the new values again and returns the current rider, no error', async () => {
-      const { rider, token } = ctx.pendingRider();
+      const { rider, token } = await ctx.pendingRider();
       const first = await register(ctx.app, body({ email: 'asha@example.com' }), token);
       expect(first.res.status).toBe(200);
       const second = await register(ctx.app, body({ fullName: 'Asha Kumari', email: 'asha@example.com', registeredCity: 'Ranchi' }), token);
@@ -157,21 +157,21 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     });
 
     it('the rider can change to a different email', async () => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       await register(ctx.app, body({ email: 'a@example.com' }), token);
       const { body: reply } = await register(ctx.app, body({ email: 'b@example.com' }), token);
       expect(reply.data.rider.email).toBe('b@example.com');
     });
 
     it('a changed email resets isEmailVerified to false', async () => {
-      const { token } = ctx.pendingRider({ email: 'a@example.com', isEmailVerified: true });
+      const { token } = await ctx.pendingRider({ email: 'a@example.com', isEmailVerified: true });
       const { body: reply } = await register(ctx.app, body({ email: 'b@example.com' }), token);
       expect(reply.data.rider).toMatchObject({ email: 'b@example.com', isEmailVerified: false });
       expect(ctx.db.tables.rider[0].isEmailVerified).toBe(false);
     });
 
     it('city and state: sent means saved, omitted keeps the stored value', async () => {
-      const { token } = ctx.pendingRider({ registeredCity: 'Ranchi', registeredState: 'Jharkhand' });
+      const { token } = await ctx.pendingRider({ registeredCity: 'Ranchi', registeredState: 'Jharkhand' });
       const kept = await register(ctx.app, body(), token);
       expect(kept.body.data.rider).toMatchObject({ registeredCity: 'Ranchi', registeredState: 'Jharkhand' });
       const changed = await register(ctx.app, body({ registeredCity: ' Dhanbad ' }), token);
@@ -179,20 +179,20 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     });
 
     it('null or blank city and state do not clear the stored values (clearing is not supported)', async () => {
-      const { token } = ctx.pendingRider({ registeredCity: 'Ranchi', registeredState: 'Jharkhand' });
+      const { token } = await ctx.pendingRider({ registeredCity: 'Ranchi', registeredState: 'Jharkhand' });
       const { res, body: reply } = await register(ctx.app, body({ registeredCity: null, registeredState: '   ' }), token);
       expect(res.status).toBe(200);
       expect(reply.data.rider).toMatchObject({ registeredCity: 'Ranchi', registeredState: 'Jharkhand' });
     });
 
     it('the same email sent again keeps isEmailVerified', async () => {
-      const { token } = ctx.pendingRider({ email: 'a@example.com', isEmailVerified: true });
+      const { token } = await ctx.pendingRider({ email: 'a@example.com', isEmailVerified: true });
       const { body: reply } = await register(ctx.app, body({ fullName: 'Asha Kumari', email: 'a@example.com' }), token);
       expect(reply.data.rider).toMatchObject({ fullName: 'Asha Kumari', email: 'a@example.com', isEmailVerified: true });
     });
 
     it('an omitted email stays as it was (not wiped), and isEmailVerified is untouched', async () => {
-      const { token } = ctx.pendingRider({ email: 'a@example.com', isEmailVerified: true });
+      const { token } = await ctx.pendingRider({ email: 'a@example.com', isEmailVerified: true });
       const { res, body: reply } = await register(ctx.app, body({ fullName: 'Asha Kumari' }), token);
       expect(res.status).toBe(200);
       expect(reply.data.rider).toMatchObject({ fullName: 'Asha Kumari', email: 'a@example.com', isEmailVerified: true });
@@ -200,7 +200,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
     it('an email taken by another rider on the second call is EMAIL_IN_USE and the old email stays', async () => {
       ctx.db.addRider({ phoneNumber: '+919477172299', email: 'taken@example.com' });
-      const { token } = ctx.pendingRider({ email: 'a@example.com' });
+      const { token } = await ctx.pendingRider({ email: 'a@example.com' });
       const { res, body: reply } = await register(ctx.app, body({ email: 'taken@example.com' }), token);
       expect(res.status).toBe(409);
       expect(reply.error.code).toBe('EMAIL_IN_USE');
@@ -210,7 +210,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('a unique-index violation after the pre-check (a parallel call took the email)', () => {
     it('is EMAIL_IN_USE 409 with field email, never a 500', async () => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       // The pre-check finds nobody; the write then hits the unique index, as in a real race.
       const real = ctx.db.rider.findUnique;
       ctx.db.rider.findUnique = (async (args: { where: Record<string, unknown> }) => ('email' in args.where ? null : real(args))) as typeof real;
@@ -226,7 +226,7 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     const expected = { code: 'UNAUTHORIZED', message: 'Please log in again.', field: null };
 
     it('no Authorization header', async () => {
-      ctx.pendingRider();
+      await ctx.pendingRider();
       const { res, body: reply } = await register(ctx.app, body());
       expect(res.status).toBe(401);
       expect(reply.success).toBe(false);
@@ -237,42 +237,40 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     it.each([
       ['an empty bearer', 'Bearer '],
       ['a non-Bearer scheme', 'Basic abc'],
-      ['not a JWT', 'Bearer not-a-jwt'],
+      ['not a token', 'Bearer not-a-token'],
       ['two parts only', 'Bearer aaa.bbb'],
       ['garbage parts', 'Bearer a.b.c'],
     ])('malformed token: %s', async (_name, header) => {
-      ctx.pendingRider();
+      await ctx.pendingRider();
       const { res, body: reply } = await call(ctx.app, 'register', body(), header);
       expect(res.status).toBe(401);
       expect(reply.error).toEqual(expected);
     });
 
-    it('expired token (15 minutes pass)', async () => {
-      const { token } = ctx.pendingRider();
-      ctx.advance(15 * 60_000);
+    it('expired session (30 days pass without use)', async () => {
+      const { token } = await ctx.pendingRider();
+      ctx.advance(30 * 24 * 60 * 60_000 + 1000);
       const { res, body: reply } = await register(ctx.app, body(), token);
       expect(res.status).toBe(401);
       expect(reply.error).toEqual(expected);
       expect(ctx.db.tables.rider[0].status).toBe('PROFILE_PENDING');
     });
 
-    it('wrong signature', async () => {
-      const { rider } = ctx.pendingRider();
-      const forged = new AccessTokenService('another-secret-0123456789abcdefghij').issue({ riderId: rider.id as string, deviceId: 'device-1', now: new Date(T0) }).token;
-      const { res, body: reply } = await register(ctx.app, body(), forged);
+    it('an unknown but well-formed token', async () => {
+      await ctx.pendingRider();
+      const { res, body: reply } = await register(ctx.app, body(), newOpaqueToken());
       expect(res.status).toBe(401);
       expect(reply.error).toEqual(expected);
     });
 
-    it('wrong issuer', async () => {
-      const { rider } = ctx.pendingRider();
-      const iat = T0 / 1000;
-      const token = signHs256Jwt({ iss: 'someone-else', sub: rider.id, role: 'RIDER', deviceId: 'device-1', iat, exp: iat + 900 }, SECRET);
+    it('a session for a rider that no longer exists is 401 and its sessions are deleted', async () => {
+      const token = await ctx.riderToken('rider-gone');
       expect((await register(ctx.app, body(), token)).res.status).toBe(401);
+      expect(ctx.db.tables.refreshToken).toHaveLength(0);
     });
 
     it('a token for a rider that no longer exists', async () => {
-      const { res, body: reply } = await register(ctx.app, body(), ctx.riderToken('rider-gone'));
+      const { res, body: reply } = await register(ctx.app, body(), await ctx.riderToken('rider-gone'));
       expect(res.status).toBe(401);
       expect(reply.error).toEqual(expected);
     });
@@ -284,8 +282,8 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('the wrong domain: 403 FORBIDDEN', () => {
     it('a DRIVER token on a rider route', async () => {
-      ctx.pendingRider();
-      const { res, body: reply } = await register(ctx.app, body(), ctx.driverToken());
+      await ctx.pendingRider();
+      const { res, body: reply } = await register(ctx.app, body(), await ctx.driverToken());
       expect(res.status).toBe(403);
       expect(reply.error).toEqual({ code: 'FORBIDDEN', message: "You don't have access to this.", field: null });
       expect(ctx.db.tables.rider[0].status).toBe('PROFILE_PENDING');
@@ -294,18 +292,51 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('account state', () => {
     it.each(['SUSPENDED', 'BLOCKED', 'DELETED'])('a %s rider is ACCOUNT_BANNED (403) and nothing changes', async (status) => {
-      const { token } = ctx.pendingRider({ status });
+      const { token } = await ctx.pendingRider({ status });
       const { res, body: reply } = await register(ctx.app, body(), token);
       expect(res.status).toBe(403);
       expect(reply.error).toEqual({ code: 'ACCOUNT_BANNED', message: "This account can't book rides.", field: null });
       expect(ctx.db.tables.rider[0]).toMatchObject({ status, fullName: null, isProfileComplete: false });
+      expect(ctx.db.tables.refreshToken).toHaveLength(0); // the guard deleted the sessions
+      expect((await register(ctx.app, body(), token)).res.status).toBe(401); // and the token is dead now
+    });
+  });
+
+  describe('logout', () => {
+    const logout = async (token?: string) => {
+      const headers: Record<string, string> = {};
+      if (token !== undefined) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(`${versionedBaseUrl(ctx.app)}/rider/auth/logout`, { method: 'POST', headers });
+      return { res, body: await res.json() };
+    };
+
+    it('200 { loggedOut: true }, and the token is dead after', async () => {
+      const { token } = await ctx.pendingRider();
+      const out = await logout(token);
+      expect(out.res.status).toBe(200);
+      expect(out.body).toMatchObject({ success: true, data: { loggedOut: true } });
+      expect(ctx.db.tables.refreshToken).toHaveLength(0);
+      expect((await register(ctx.app, body(), token)).res.status).toBe(401);
+      expect((await logout(token)).res.status).toBe(401); // already unknown: 401 like any guarded route
+    });
+
+    it('no token is 401 and a DRIVER token is 403', async () => {
+      expect((await logout()).res.status).toBe(401);
+      expect((await logout(await ctx.driverToken())).res.status).toBe(403);
+    });
+
+    it('ends only this device: the same rider on another device keeps their session', async () => {
+      const { rider, token } = await ctx.pendingRider();
+      const other = (await new SessionService(ctx.db as unknown as PrismaService).create({ role: 'RIDER', accountId: rider.id as string, deviceId: 'device-2', now: new Date(T0) })).accessToken;
+      await logout(token);
+      expect((await register(ctx.app, body(), other)).res.status).toBe(200);
     });
   });
 
   describe('conflicts: 409', () => {
     it('EMAIL_IN_USE with field email when another rider has it', async () => {
       ctx.db.addRider({ phoneNumber: '+919477172299', email: 'taken@example.com' });
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       const { res, body: reply } = await register(ctx.app, body({ email: 'taken@example.com' }), token);
       expect(res.status).toBe(409);
       expect(reply.error).toEqual({ code: 'EMAIL_IN_USE', message: 'This email is already in use.', field: 'email' });
@@ -315,8 +346,8 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('invalid input: 400 INVALID_INPUT, and nothing is written', () => {
     let token: string;
-    beforeEach(() => {
-      token = ctx.pendingRider().token;
+    beforeEach(async () => {
+      token = (await ctx.pendingRider()).token;
     });
     const detailsOf = async (payload: unknown) => {
       const { res, body: reply } = await register(ctx.app, payload, token);
@@ -369,16 +400,16 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
 
   describe('rate limit', () => {
     it('10 registers per IP per hour, the 11th is 429 RATE_LIMITED', async () => {
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       for (let i = 0; i < 10; i++) expect((await register(ctx.app, body(), token)).res.status).toBe(200);
       const { res, body: reply } = await register(ctx.app, body(), token);
       expect(res.status).toBe(429);
       expect(reply.error).toEqual({ code: 'RATE_LIMITED', message: 'Too many requests. Try again shortly.', field: null });
     });
 
-    it('a refused token does not use up the limit (the JWT guard runs first)', async () => {
+    it('a refused token does not use up the limit (the session guard runs first)', async () => {
       for (let i = 0; i < 12; i++) expect((await register(ctx.app, body())).res.status).toBe(401);
-      const { token } = ctx.pendingRider();
+      const { token } = await ctx.pendingRider();
       expect((await register(ctx.app, body(), token)).res.status).toBe(200);
     });
   });

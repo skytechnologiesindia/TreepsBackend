@@ -8,7 +8,6 @@ export const OTP_PROVIDERS = ['twofactor', 'fake'] as const;
 export type OtpProviderName = (typeof OTP_PROVIDERS)[number];
 export const DEFAULT_TRUST_PROXY_HOPS = 0;
 export const MAX_TRUST_PROXY_HOPS = 10;
-export const MIN_JWT_ACCESS_SECRET_LENGTH = 32;
 
 export interface ValidatedEnv {
   DATABASE_URL: string;
@@ -20,7 +19,6 @@ export interface ValidatedEnv {
   TWOFACTOR_API_KEY?: string; // only when OTP_PROVIDER is twofactor
   TWOFACTOR_TEMPLATE?: string; // only when OTP_PROVIDER is twofactor; optional, default OTP1
   TRUST_PROXY_HOPS: number;
-  JWT_ACCESS_SECRET: string;
 }
 
 export interface EnvProblem {
@@ -130,11 +128,6 @@ function checkTrustProxyHops(raw: unknown): { hops?: number; reason?: ReasonCode
   return hops <= MAX_TRUST_PROXY_HOPS ? { hops } : { reason: 'OUT_OF_RANGE' };
 }
 
-function checkJwtAccessSecret(raw: unknown): ReasonCode | undefined {
-  if (isMissing(raw) || typeof raw !== 'string') return 'REQUIRED';
-  return Array.from(raw).length >= MIN_JWT_ACCESS_SECRET_LENGTH ? undefined : 'TOO_SHORT';
-}
-
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> & ValidatedEnv {
@@ -165,8 +158,6 @@ export function validateEnv(
 
   const hops = checkTrustProxyHops(config.TRUST_PROXY_HOPS);
   if (hops.reason) problems.push({ variable: 'TRUST_PROXY_HOPS', reason: hops.reason });
-  const jwtSecret = checkJwtAccessSecret(config.JWT_ACCESS_SECRET);
-  if (jwtSecret) problems.push({ variable: 'JWT_ACCESS_SECRET', reason: jwtSecret });
   if (problems.length > 0) throw new EnvConfigError(problems);
 
   return {
@@ -176,6 +167,5 @@ export function validateEnv(
     NODE_ENV: config.NODE_ENV as NodeEnv,
     OTP_PROVIDER: config.OTP_PROVIDER as OtpProviderName,
     TRUST_PROXY_HOPS: hops.hops as number,
-    JWT_ACCESS_SECRET: config.JWT_ACCESS_SECRET as string,
   };
 }

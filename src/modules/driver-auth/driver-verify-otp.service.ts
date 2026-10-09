@@ -3,9 +3,9 @@ import { DriverStatus, OtpPurpose, type Driver } from '@prisma/client';
 import { CLOCK, type Clock } from '../../common/clock.js';
 import { violatedUniqueIndex } from '../../common/database/unique-violation.js';
 import { AppException } from '../../common/errors/app.exception.js';
-import { AccessTokenService, type AuthTokens } from '../../common/jwt/access-token.service.js';
-import { newOpaqueToken, sha256Hex } from '../../common/tokens.js';
-import { REFRESH_TOKEN_TTL_SECONDS } from '../../config/tokens.js';
+import { SessionService } from '../../common/session/session.service.js';
+import type { SessionTokens } from '../../common/session/session.types.js';
+import { DRIVER_ROLE } from '../../config/tokens.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { markCodeUsed, OtpCodeChecker } from '../otp/otp-code-checker.js';
@@ -25,7 +25,7 @@ export type DriverView = ReturnType<typeof driverView>;
 export interface DriverVerifyResult {
   isNewDriver: boolean;
   driver: DriverView;
-  tokens: AuthTokens;
+  tokens: SessionTokens;
 }
 
 const BANNED: ReadonlySet<DriverStatus> = new Set([DriverStatus.SUSPENDED, DriverStatus.BLOCKED, DriverStatus.DELETED]);
@@ -40,7 +40,7 @@ export class DriverVerifyOtpService {
     private readonly prisma: PrismaService,
     @Inject(OTP_PROVIDER) otpProvider: OtpProvider,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly accessTokens: AccessTokenService,
+    private readonly sessions: SessionService,
   ) {
     this.codeChecker = new OtpCodeChecker(prisma, otpProvider);
   }
@@ -62,11 +62,11 @@ export class DriverVerifyOtpService {
   }
 
   // One transaction for a new and for an existing driver: the code is marked used, the driver is
-  // created (or its lastLoginAt set), the device is saved and a refresh token is issued, or none of
+  // created (or its lastLoginAt set), the device is saved and a session is created, or none of
   // it happens and the code stays usable. In Express terms, a Mongo multi-document transaction.
   private async signIn(existing: Driver | null, sessionId: string, dto: VerifyOtpDto, now: Date): Promise<DriverVerifyResult> {
     const { device } = dto;
-    const refreshToken = newOpaqueToken();
+    let tokens!: SessionTokens;
 
     let driver: Driver;
     try {
@@ -102,20 +102,11 @@ export class DriverVerifyOtpService {
             ...(device.fcmToken !== undefined ? { fcmToken: device.fcmToken } : {}),
           },
         });
-        // One refresh token per device: the earlier one stops working.
-        await tx.driverRefreshToken.updateMany({ where: { driverId: row.id, deviceId: device.deviceId, revokedAt: null }, data: { revokedAt: now } });
-        await tx.driverRefreshToken.create({
-          data: {
-            tokenHash: sha256Hex(refreshToken),
-            driverId: row.id,
-            deviceId: device.deviceId,
-            expiresAt: new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1000),
-            createdAt: now,
-          },
-        });
-        // Single active device (decision 170): every other device of this driver is signed out, so
-        // its refresh tokens are gone. Riders are unchanged (deferred).
-        await tx.driverRefreshToken.deleteMany({ where: { driverId: row.id, deviceId: { not: device.deviceId } } });
+        // One active session (decision 174): the session of this device is replaced and every other
+        // session of this driver is deleted at once; the other devices' rows go with them. The
+        // session table is touched only through SessionService.
+        tokens = await this.sessions.create({ role: DRIVER_ROLE, accountId: row.id, deviceId: device.deviceId, now }, tx);
+        await this.sessions.deleteAllForAccount(DRIVER_ROLE, row.id, { exceptDeviceId: device.deviceId }, tx);
         await tx.driverDevice.deleteMany({ where: { driverId: row.id, deviceId: { not: device.deviceId } } });
         return row;
       });
@@ -125,16 +116,6 @@ export class DriverVerifyOtpService {
       throw error;
     }
 
-    const access = this.accessTokens.issueForDriver({ driverId: driver.id, deviceId: device.deviceId, now });
-    return {
-      isNewDriver: existing === null,
-      driver: driverView(driver),
-      tokens: {
-        accessToken: access.token,
-        accessTokenExpiresInSeconds: access.expiresInSeconds,
-        refreshToken,
-        refreshTokenExpiresInSeconds: REFRESH_TOKEN_TTL_SECONDS,
-      },
-    };
+    return { isNewDriver: existing === null, driver: driverView(driver), tokens };
   }
 }
