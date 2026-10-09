@@ -6,7 +6,7 @@ One command: `npm run e2e:rider`. It is not part of `npm test` or `npm run test:
 1. Creates the scratch database `treeps_scratch_e2e` on the server named in `DATABASE_URL` (only host, port, user and password are used; the database name is a constant in the spec, never `treeps_db`). An old copy is dropped first.
 2. Applies the real migrations with `prisma migrate deploy`.
 3. Boots the real `AppModule` with the production wiring (`setupApp`, `assertRouteInputs`) on a random port with `OTP_PROVIDER=fake`, `ALLOW_FAKE_OTP=true`, `FAKE_OTP_CODE=424242` and a test JWT secret. The scratch `DATABASE_URL` is set in the process, so `.env` cannot override it.
-4. Runs 26 cases over real `fetch`, prints a table (case, expected, actual, PASS/FAIL), then drops the scratch database and checks it is gone. The run fails if any case fails.
+4. Runs 39 cases (1 to 25 rider and driver login, 26 to 38 driver refresh, logout and one active device, 39 the envelope) over real `fetch`, prints a table (case, expected, actual, PASS/FAIL), then drops the scratch database and checks it is gone. The run fails if any case fails.
 
 ## Notes
 - A fresh app is started for each case group, so the in-memory IP rate counters start empty (the register limit is 10 an hour per IP).
@@ -16,3 +16,6 @@ One command: `npm run e2e:rider`. It is not part of `npm test` or `npm run test:
 
 ## Found by this test
 2026-10-09: the first run failed cases 8, 9, 21 and 25. Cause: the dev Postgres runs in `Asia/Calcutta`, and a `Date` parameter compared with a `timestamptz` column was read in the server's local time, so every `createdAt > now - X` query was off by 5 h 30 min (the 30 s resend cooldown behaved like 5.5 hours). Fixed by opening every connection in UTC (`src/prisma/prisma.service.ts`). See decision 169.
+
+## Driver sessions (cases 26 to 38, added 2026-10-09)
+Real-Postgres cases for `driver-refresh.md` and `driver-logout.md`, plus one case proving riders are unchanged (38). They move rows in time with `UPDATE` on the scratch database where a case needs "more than 10 seconds ago" (28) or an expired token (32), instead of sleeping.

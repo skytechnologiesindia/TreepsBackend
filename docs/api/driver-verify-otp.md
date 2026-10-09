@@ -124,7 +124,7 @@ All errors use the envelope in `standards/response-format.md`. Same codes and wo
 - This route reveals whether a phone has a driver account (`isNewDriver`, `ACCOUNT_BANNED`), but only to someone who proved they hold the phone.
 - A SUSPENDED or BLOCKED driver still costs an SMS at `send-otp` (that route never reads an account table).
 - A driver whose status is `DOCUMENTS_PENDING`, `UNDER_REVIEW`, `APPROVED` or `REJECTED` can log in. What each status may do after login is decided by later APIs. Whether a `REJECTED` driver should be refused here: TO DECIDE.
-- A login on a new device creates another DriverDevice and token; the old device's token is not touched (one token per device).
+- **One active device (decision 170, 2026-10-09):** a successful login deletes every other DriverDevice of the driver and their refresh tokens in the same transaction, so a login on a new device signs the old device out (its access token still works for up to 15 minutes, decision 173). Logging in again on the same device just replaces its token.
 - Access tokens already issued stay valid until they expire (15 minutes) even after a ban (as for riders, decision 144).
 - A person may hold a rider and a driver account with one phone (the two are separate tables and separate codes); whether that is allowed for good: TO DECIDE (as in `driver-send-otp.md`).
 - The rider route could not tell a driver token from a rider token if a guard ignored `role`. The JWT guard (F4) must check `role` against the route's domain.
@@ -151,3 +151,4 @@ A barrier holds both requests until each has passed the code check and the drive
 | Date | What changed | Why |
 |---|---|---|
 | 2026-10-07 | Draft created and built: driver verify-otp, `Driver`, `DriverDevice`, `DriverRefreshToken`, role `DRIVER`, one transaction for create and login, shared code check | Owner instruction of 2026-10-07 (decisions 152 to 159) |
+| 2026-10-09 | One active device: verify-otp deletes the driver's other devices and their refresh tokens in the same transaction | M6 driver (decision 170) |
