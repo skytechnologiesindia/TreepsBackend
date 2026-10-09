@@ -5,6 +5,9 @@ import { RATE_LIMITS } from '../../config/rate-limits.js';
 import { VerifyOtpDto } from '../otp/dto/verify-otp.dto.js';
 import { SendOtpDto } from '../otp/dto/send-otp.dto.js';
 import { SendOtpService } from '../otp/send-otp.service.js';
+import { DriverLogoutDto } from './dto/logout.dto.js';
+import { DriverRefreshDto } from './dto/refresh.dto.js';
+import { DriverSessionService } from './driver-session.service.js';
 import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 // The /v1 prefix is added by setupApp; never write it here (api-standard.md section 8).
@@ -14,6 +17,7 @@ export class DriverAuthController {
   constructor(
     private readonly sendOtpService: SendOtpService,
     private readonly driverVerifyOtpService: DriverVerifyOtpService,
+    private readonly driverSessionService: DriverSessionService,
   ) {}
 
   // Public route (no login). Same body, validation, limits and errors as the rider route. The
@@ -34,5 +38,23 @@ export class DriverAuthController {
   @Post('verify-otp')
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.driverVerifyOtpService.verifyOtp(dto);
+  }
+
+  // Public route: the refresh token is the credential, and the access token may already be expired,
+  // so there is no JWT guard. 120 requests per IP per hour (decision 137). Rotating
+  // (docs/api/driver-refresh.md).
+  @RateLimit({ name: 'driver-refresh', ip: RATE_LIMITS.refresh.ip })
+  @HttpCode(200)
+  @Post('refresh')
+  refresh(@Body() dto: DriverRefreshDto) {
+    return this.driverSessionService.refresh(dto);
+  }
+
+  // Public route, idempotent: always 200 { loggedOut: true } (docs/api/driver-logout.md).
+  @RateLimit({ name: 'driver-logout', ip: RATE_LIMITS.logout.ip })
+  @HttpCode(200)
+  @Post('logout')
+  logout(@Body() dto: DriverLogoutDto) {
+    return this.driverSessionService.logout(dto);
   }
 }

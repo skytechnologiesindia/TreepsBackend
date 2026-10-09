@@ -100,6 +100,7 @@ Messages for the estimate codes are copied from `docs/api/estimate.md`, where th
 | OTP_ATTEMPTS_EXCEEDED | 429 | "Too many wrong codes. Please ask for a new code." (proposed) | otp |
 | OTP_PROVIDER_ERROR | 503 | "We couldn't reach the code service. Please try again." (proposed) | null |
 | EMAIL_IN_USE | 409 | "This email is already in use." (proposed) | email |
+| REFRESH_TOKEN_INVALID | 401 | "Your session has ended. Please log in again." (proposed) | null |
 
 Where the registry lives in code: `src/common/errors/error-registry.ts`. Controllers throw a single `AppException` (`src/common/errors/app.exception.ts`) with a code and optional `{ field, details }`. Status and message come only from the registry; `details` is accepted only with INVALID_INPUT and the constructor rejects it on any other code.
 
@@ -161,3 +162,4 @@ F3.2 is done. The request id middleware, the error registry with `AppException`,
 | 2026-10-08 | Put REGISTRATION_TOKEN_INVALID back in the registry table until the old register route is replaced (the code still throws it and the registry spec compares code and doc); it is removed with that step (decision 162) | verify-otp redesign step |
 | 2026-10-08 | Section 8: `<key>Ist` Indian-time twins added to success `data` by a separate serializer step; wrapper sentences and rule 13 amended | Owner instruction of 2026-10-08 (decision 166) |
 | 2026-10-08 | Removed REGISTRATION_TOKEN_INVALID from the registry table and the code (the old register route is replaced); 18 codes. UNAUTHORIZED and FORBIDDEN are now thrown by the JWT guard (missing, malformed, expired or wrongly signed token: 401; wrong route domain: 403) | Complete-profile + JWT guard step |
+| 2026-10-09 | Added REFRESH_TOKEN_INVALID (401): one code for every bad refresh token (unknown, expired, malformed, wrong account type, wrong device, already rotated); the registry has 19 codes | Driver refresh and logout (decision 171) |

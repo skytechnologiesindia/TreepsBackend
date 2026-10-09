@@ -16,6 +16,7 @@ import { RiderAuthController } from '../rider-auth/rider-auth.controller.js';
 import { InMemoryAuthDb } from '../rider-auth/testing/in-memory-auth-db.js';
 import { VerifyOtpService } from '../rider-auth/verify-otp.service.js';
 import { DriverAuthController } from './driver-auth.controller.js';
+import { DriverSessionService } from './driver-session.service.js';
 import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 const PHONE = '+919477172214';
@@ -36,6 +37,7 @@ async function startApp() {
       VerifyOtpService,
       RegisterService,
       DriverVerifyOtpService,
+      DriverSessionService,
       { provide: AccessTokenService, useValue: new AccessTokenService(SECRET) },
       { provide: PrismaService, useValue: db },
       { provide: OTP_PROVIDER, useValue: new FakeOtpProvider(CODE) },

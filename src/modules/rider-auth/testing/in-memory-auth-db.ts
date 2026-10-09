@@ -26,8 +26,9 @@ function matches(row: Row, where: Row): boolean {
     const value = row[key];
     if (condition === null) return value === null;
     if (condition instanceof Date || typeof condition !== 'object') return sameValue(value, condition);
-    const c = condition as { lt?: number | Date; gt?: number | Date; in?: unknown[] };
+    const c = condition as { lt?: number | Date; gt?: number | Date; in?: unknown[]; not?: unknown };
     if (c.in !== undefined && !c.in.includes(value)) return false;
+    if (c.not !== undefined && value === c.not) return false;
     const num = (x: unknown) => (x instanceof Date ? x.getTime() : (x as number));
     if (c.lt !== undefined && !(value !== null && num(value) < num(c.lt))) return false;
     if (c.gt !== undefined && !(value !== null && num(value) > num(c.gt))) return false;
@@ -93,6 +94,12 @@ export class InMemoryAuthDb {
       findUnique: async ({ where }: { where: Row }) => {
         this.touch(`${name}.findUnique`);
         return find(where)[0] ?? null;
+      },
+      deleteMany: async ({ where = {} }: { where?: Row }) => {
+        this.touch(`${name}.deleteMany`, { where });
+        const found = find(where);
+        this.tables[name] = rows().filter((row) => !found.includes(row));
+        return { count: found.length };
       },
       count: async ({ where = {} }: { where?: Row }) => {
         this.touch(`${name}.count`);

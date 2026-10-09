@@ -94,7 +94,8 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
   const ageSessions = (phone: string) => pool.query(`UPDATE "OtpSession" SET "createdAt" = now() - interval '31 seconds' WHERE "phoneNumber" = $1`, [phone]);
 
   const send = (phone: string, route = 'rider') => call(`/${route}/auth/send-otp`, { phoneNumber: phone });
-  const verify = (phone: string, otp = FAKE_CODE, route = 'rider') => call(`/${route}/auth/verify-otp`, { phoneNumber: phone, otp, device });
+  const verify = (phone: string, otp = FAKE_CODE, route = 'rider', dev: Record<string, string> = device) => call(`/${route}/auth/verify-otp`, { phoneNumber: phone, otp, device: dev });
+  const deviceNamed = (deviceId: string) => ({ ...device, deviceId });
   const register = (payload: unknown, token?: string) => call('/rider/auth/register', payload, token);
 
   // Sends, verifies, and returns the verify reply (a new rider in PROFILE_PENDING).
@@ -367,10 +368,149 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
     });
   });
 
+  // ---------------------------------------------------------------- Driver sessions (M6)
+  describe('driver refresh, logout and one active device', () => {
+    beforeAll(startApp);
+
+    const refresh = (refreshToken: string, deviceId: string) => call('/driver/auth/refresh', { refreshToken, deviceId });
+    const logout = (refreshToken: string) => call('/driver/auth/logout', { refreshToken });
+    const A = 'e2e-driver-device-A';
+    const B = 'e2e-driver-device-B';
+    // A new driver (or an existing one on another device) logs in through the real OTP routes.
+    async function driverLogin(phone: string, deviceId = A) {
+      await ageSessions(phone);
+      const sent = await send(phone, 'driver');
+      if (sent.status !== 200) throw new Error(`setup: driver send-otp gave ${label(sent)}`);
+      const r = await verify(phone, FAKE_CODE, 'driver', deviceNamed(deviceId));
+      if (r.status !== 200) throw new Error(`setup: driver verify-otp gave ${label(r)}`);
+      return { phone, driverId: r.body.data.driver.id as string, refreshToken: r.body.data.tokens.refreshToken as string, accessToken: r.body.data.tokens.accessToken as string };
+    }
+    const count = async (table: string, driverId: string) => (await pool.query(`SELECT count(*)::int AS n FROM "${table}" WHERE "driverId" = $1`, [driverId])).rows[0].n as number;
+    const INVALID = (r: Reply) => r.status === 401 && r.body?.error?.code === 'REFRESH_TOKEN_INVALID';
+
+    it('cases 26 to 38', async () => {
+      await check(26, 'driver refresh: success + rotation', '200 new tokens, old row rotated', async () => {
+        const d = await driverLogin(newPhone());
+        const r = await refresh(d.refreshToken, A);
+        const t = r.body?.data?.tokens;
+        const old = await pool.query(`SELECT "revokedAt" FROM "DriverRefreshToken" WHERE "driverId" = $1 AND "revokedAt" IS NOT NULL`, [d.driverId]);
+        const live = await pool.query(`SELECT "expiresAt" > now() + interval '29 days' AS fresh FROM "DriverRefreshToken" WHERE "driverId" = $1 AND "revokedAt" IS NULL`, [d.driverId]);
+        const shape = !!t && typeof t.accessToken === 'string' && t.refreshToken !== d.refreshToken && t.accessTokenExpiresInSeconds === 900 && t.refreshTokenExpiresInSeconds === 2592000;
+        return { actual: `${label(r)} newRefresh=${t?.refreshToken !== d.refreshToken} oldRotated=${old.rowCount} fresh30d=${live.rows[0]?.fresh}`, pass: r.status === 200 && shape && old.rowCount === 1 && live.rows[0]?.fresh === true };
+      });
+
+      await check(27, 'reuse within 10 s: only 401', '401 REFRESH_TOKEN_INVALID, new token still works', async () => {
+        const d = await driverLogin(newPhone());
+        const first = await refresh(d.refreshToken, A);
+        const replay = await refresh(d.refreshToken, A);
+        const next = await refresh(first.body.data.tokens.refreshToken, A);
+        return { actual: `replay ${label(replay)}; new token then ${label(next)}`, pass: INVALID(replay) && next.status === 200 };
+      });
+
+      await check(28, 'reuse after 10 s: theft, all revoked', '401, then every session gone', async () => {
+        const d = await driverLogin(newPhone());
+        const first = await refresh(d.refreshToken, A);
+        await pool.query(`UPDATE "DriverRefreshToken" SET "revokedAt" = now() - interval '11 seconds' WHERE "driverId" = $1 AND "revokedAt" IS NOT NULL`, [d.driverId]);
+        const replay = await refresh(d.refreshToken, A);
+        const afterwards = await refresh(first.body.data.tokens.refreshToken, A);
+        const left = (await count('DriverRefreshToken', d.driverId)) + (await count('DriverDevice', d.driverId));
+        return { actual: `replay ${label(replay)}; current token ${label(afterwards)}; rows left=${left}`, pass: INVALID(replay) && INVALID(afterwards) && left === 0 };
+      });
+
+      await check(29, '5 parallel refreshes, one token', 'exactly one 200, four 401', async () => {
+        const d = await driverLogin(newPhone());
+        const replies = await Promise.all(Array.from({ length: 5 }, () => refresh(d.refreshToken, A)));
+        const ok = replies.filter((r) => r.status === 200).length;
+        const bad = replies.filter(INVALID).length;
+        const live = await pool.query(`SELECT count(*)::int AS n FROM "DriverRefreshToken" WHERE "driverId" = $1 AND "revokedAt" IS NULL`, [d.driverId]);
+        return { actual: `${ok}x200, ${bad}x401 REFRESH_TOKEN_INVALID, live tokens=${live.rows[0].n}`, pass: ok === 1 && bad === 4 && live.rows[0].n === 1 };
+      });
+
+      await check(30, 'rider refresh token on the driver route', '401 REFRESH_TOKEN_INVALID', async () => {
+        const phone = newPhone();
+        await send(phone);
+        const rider = await verify(phone, FAKE_CODE, 'rider', deviceNamed(A));
+        await driverLogin(phone, A);
+        const r = await refresh(rider.body.data.tokens.refreshToken, A);
+        return { actual: label(r), pass: rider.status === 200 && INVALID(r) };
+      });
+
+      await check(31, 'wrong deviceId', '401, token still usable on the right device', async () => {
+        const d = await driverLogin(newPhone());
+        const wrong = await refresh(d.refreshToken, B);
+        const right = await refresh(d.refreshToken, A);
+        return { actual: `wrong ${label(wrong)}; right ${label(right)}`, pass: INVALID(wrong) && right.status === 200 };
+      });
+
+      await check(32, 'expired refresh token', '401 REFRESH_TOKEN_INVALID', async () => {
+        const d = await driverLogin(newPhone());
+        await pool.query(`UPDATE "DriverRefreshToken" SET "expiresAt" = now() - interval '1 second' WHERE "driverId" = $1`, [d.driverId]);
+        const r = await refresh(d.refreshToken, A);
+        return { actual: label(r), pass: INVALID(r) };
+      });
+
+      await check(33, 'unknown and malformed tokens', '401 REFRESH_TOKEN_INVALID both', async () => {
+        const unknown = await refresh('A'.repeat(43), A);
+        const malformed = await refresh('not-a-token', A);
+        return { actual: `unknown ${label(unknown)}; malformed ${label(malformed)}`, pass: INVALID(unknown) && INVALID(malformed) };
+      });
+
+      await check(34, 'SUSPENDED driver refreshes', '403 ACCOUNT_BANNED, sessions revoked', async () => {
+        const d = await driverLogin(newPhone());
+        await pool.query(`UPDATE "Driver" SET status = 'SUSPENDED' WHERE id = $1`, [d.driverId]);
+        const r = await refresh(d.refreshToken, A);
+        const again = await refresh(d.refreshToken, A);
+        const left = (await count('DriverRefreshToken', d.driverId)) + (await count('DriverDevice', d.driverId));
+        return { actual: `${label(r)}; again ${label(again)}; rows left=${left}`, pass: r.status === 403 && r.body.error.code === 'ACCOUNT_BANNED' && INVALID(again) && left === 0 };
+      });
+
+      await check(35, 'logout (no access token)', '200 loggedOut true, then refresh 401', async () => {
+        const d = await driverLogin(newPhone());
+        const out = await logout(d.refreshToken);
+        const after = await refresh(d.refreshToken, A);
+        const devices = await count('DriverDevice', d.driverId);
+        return { actual: `${label(out)} loggedOut=${out.body?.data?.loggedOut}; refresh ${label(after)}; devices=${devices}`, pass: out.status === 200 && out.body.data.loggedOut === true && INVALID(after) && devices === 0 };
+      });
+
+      await check(36, 'logout is idempotent', '200 for repeat, unknown, garbage', async () => {
+        const d = await driverLogin(newPhone());
+        await logout(d.refreshToken);
+        const repeat = await logout(d.refreshToken);
+        const unknown = await logout('A'.repeat(43));
+        const garbage = await logout('x');
+        const ok = [repeat, unknown, garbage].every((r) => r.status === 200 && r.body.data.loggedOut === true);
+        return { actual: `repeat ${repeat.status}, unknown ${unknown.status}, garbage ${garbage.status}`, pass: ok };
+      });
+
+      await check(37, 'driver logs in on a 2nd device', "device A refresh 401, B works, 1 device row", async () => {
+        const phone = newPhone();
+        const a = await driverLogin(phone, A);
+        const b = await driverLogin(phone, B);
+        const oldA = await refresh(a.refreshToken, A);
+        const newB = await refresh(b.refreshToken, B);
+        const devices = await pool.query(`SELECT "deviceId" FROM "DriverDevice" WHERE "driverId" = $1`, [a.driverId]);
+        return { actual: `A ${label(oldA)}; B ${label(newB)}; devices=${devices.rows.map((r) => r.deviceId).join(',')}`, pass: a.driverId === b.driverId && INVALID(oldA) && newB.status === 200 && devices.rowCount === 1 && devices.rows[0].deviceId === B };
+      });
+
+      await check(38, 'RIDER logs in on a 2nd device (unchanged)', 'both devices and tokens stay', async () => {
+        const phone = newPhone();
+        await send(phone);
+        const first = await verify(phone, FAKE_CODE, 'rider', deviceNamed(A));
+        await ageSessions(phone);
+        await send(phone);
+        const second = await verify(phone, FAKE_CODE, 'rider', deviceNamed(B));
+        const id = first.body.data.rider.id;
+        const devices = await pool.query(`SELECT count(*)::int AS n FROM "Device" WHERE "riderId" = $1`, [id]);
+        const live = await pool.query(`SELECT count(*)::int AS n FROM "RefreshToken" WHERE "riderId" = $1 AND "revokedAt" IS NULL`, [id]);
+        return { actual: `${first.status}/${second.status} devices=${devices.rows[0].n} liveTokens=${live.rows[0].n}`, pass: first.status === 200 && second.status === 200 && devices.rows[0].n === 2 && live.rows[0].n === 2 };
+      });
+    });
+  });
+
   // ---------------------------------------------------------------- Envelope
   describe('envelope', () => {
-    it('case 26 over every response above', async () => {
-      await check(26, 'every response has the standard envelope', 'success + data|error + requestId', async () => {
+    it('case 39 over every response above', async () => {
+      await check(39, 'every response has the standard envelope', 'success + data|error + requestId', async () => {
         const bad: string[] = [];
         allReplies.forEach((r, i) => {
           const b = r.body;
@@ -386,7 +526,7 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
 
   it('every case passed', () => {
     const failed = rows.filter((r) => !r.pass).map((r) => `${r.n} ${r.name}: ${r.actual}`);
-    expect(rows).toHaveLength(26);
+    expect(rows).toHaveLength(39);
     expect(failed).toEqual([]);
   });
 });

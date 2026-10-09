@@ -113,6 +113,10 @@ export class DriverVerifyOtpService {
             createdAt: now,
           },
         });
+        // Single active device (decision 170): every other device of this driver is signed out, so
+        // its refresh tokens are gone. Riders are unchanged (deferred).
+        await tx.driverRefreshToken.deleteMany({ where: { driverId: row.id, deviceId: { not: device.deviceId } } });
+        await tx.driverDevice.deleteMany({ where: { driverId: row.id, deviceId: { not: device.deviceId } } });
         return row;
       });
     } catch (error) {

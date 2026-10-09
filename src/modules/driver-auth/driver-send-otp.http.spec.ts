@@ -14,6 +14,7 @@ import { RiderAuthController } from '../rider-auth/rider-auth.controller.js';
 import { VerifyOtpService } from '../rider-auth/verify-otp.service.js';
 import { RegisterService } from '../rider-auth/register.service.js';
 import { DriverAuthController } from './driver-auth.controller.js';
+import { DriverSessionService } from './driver-session.service.js';
 import { DriverVerifyOtpService } from './driver-verify-otp.service.js';
 
 const SECOND = 1000;
@@ -43,6 +44,7 @@ async function startApp(options: { failingProvider?: boolean } = {}) {
       VerifyOtpService,
       RegisterService,
       DriverVerifyOtpService,
+      DriverSessionService,
       { provide: AccessTokenService, useValue: new AccessTokenService('placeholder-jwt-secret-0123456789abcdef') },
       { provide: PrismaService, useValue: prisma },
       { provide: OTP_PROVIDER, useValue: provider },

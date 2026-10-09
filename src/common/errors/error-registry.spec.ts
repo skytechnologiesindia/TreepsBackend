@@ -44,9 +44,9 @@ describe('ERROR_REGISTRY', () => {
     expect(docRows.length, TABLE_CHANGED).toBeGreaterThanOrEqual(13);
   });
 
-  it('has exactly the 18 codes documented in response-format.md', () => {
-    expect(docRows, TABLE_CHANGED).toHaveLength(18);
-    expect(codes).toHaveLength(18);
+  it('has exactly the 19 codes documented in response-format.md', () => {
+    expect(docRows, TABLE_CHANGED).toHaveLength(19);
+    expect(codes).toHaveLength(19);
     expect([...codes].sort()).toEqual(docRows.map((row) => row.code).sort());
   });
 
