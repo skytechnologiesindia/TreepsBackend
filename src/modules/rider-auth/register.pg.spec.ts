@@ -49,7 +49,7 @@ describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/rider/auth/register email race, rea
     return new RegisterService(prisma as unknown as PrismaService, () => new Date(), { get: () => 'test-terms-v1' } as never);
   }
 
-  const dto = (overrides: Partial<RegisterDto> = {}): RegisterDto => ({ fullName: 'Asha Verma', gender: 'FEMALE', ...overrides });
+  const dto = (overrides: Partial<RegisterDto> = {}): RegisterDto => ({ fullName: 'Asha Verma', ...overrides });
   const outcome = async (promise: Promise<unknown>) => {
     try {
       await promise;
@@ -91,14 +91,10 @@ describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/rider/auth/register email race, rea
     expect(await db.prisma.rider.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ email: 'me@example.com', status: 'ACTIVE', isProfileComplete: true });
   });
 
-  it('completing without gender stores NULL (a nullable column); a later call may set it and a call without it keeps it', async () => {
+  it('completing the profile leaves the unused gender column NULL', async () => {
     const a = await pendingRider();
-    const service = raceOf(1);
-    await service.completeProfile(a.id, { fullName: 'Asha Verma' });
+    await raceOf(1).completeProfile(a.id, { fullName: 'Asha Verma' });
     expect(await db.prisma.rider.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ status: 'ACTIVE', gender: null, termsVersion: 'test-terms-v1' });
-    await service.completeProfile(a.id, { gender: 'OTHER' });
-    await service.completeProfile(a.id, { registeredCity: 'Ranchi' });
-    expect(await db.prisma.rider.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ gender: 'OTHER', fullName: 'Asha Verma' });
   });
 
   it('a changed email resets isEmailVerified; an omitted email stays', async () => {

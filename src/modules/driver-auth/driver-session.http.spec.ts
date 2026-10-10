@@ -116,21 +116,21 @@ describe('driver and rider sessions over HTTP (docs/api/driver-logout.md, rider-
       const first = await ctx.login('rider', 'phone-1');
       const second = await ctx.login('rider', 'phone-2');
       expect(ctx.db.tables.refreshToken).toHaveLength(2);
-      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma', gender: 'FEMALE' }, first.token)).res.status).toBe(200);
-      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma', gender: 'FEMALE' }, second.token)).res.status).toBe(200);
+      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma' }, first.token)).res.status).toBe(200);
+      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma' }, second.token)).res.status).toBe(200);
     });
 
     it('the same device replaces its own session', async () => {
       const first = await ctx.login('rider', 'phone-1');
       const second = await ctx.login('rider', 'phone-1');
-      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma', gender: 'FEMALE' }, first.token)).res.status).toBe(401);
-      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma', gender: 'FEMALE' }, second.token)).res.status).toBe(200);
+      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma' }, first.token)).res.status).toBe(401);
+      expect((await ctx.call('/rider/auth/register', { fullName: 'Asha Verma' }, second.token)).res.status).toBe(200);
     });
 
     it('register works with the session token from verify-otp', async () => {
       const { token, reply } = await ctx.login('rider', 'phone-1');
       expect(reply.rider.status).toBe('PROFILE_PENDING');
-      const done = await ctx.call('/rider/auth/register', { fullName: 'Asha Verma', gender: 'FEMALE', email: 'asha@example.com' }, token);
+      const done = await ctx.call('/rider/auth/register', { fullName: 'Asha Verma', email: 'asha@example.com' }, token);
       expect(done.res.status).toBe(200);
       expect(done.body.data.rider).toMatchObject({ status: 'ACTIVE', isProfileComplete: true });
     });

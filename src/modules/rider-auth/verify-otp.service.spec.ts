@@ -85,7 +85,6 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
       registeredCity: 'Ranchi',
       registeredState: 'Jharkhand',
       registeredAddress: null,
-      gender: null,
       termsAcceptedAt: null,
       termsVersion: null,
       status: 'ACTIVE',

@@ -199,7 +199,7 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
       await check(4, 'verify-otp replay of the same code', '422 OTP_INVALID', async () => is(await verify(s.phone), 422, 'OTP_INVALID'));
 
       await check(5, 'register with access token', '200 ACTIVE complete, email unverified', async () => {
-        const r = await register({ fullName: 'Asha Verma', gender: 'FEMALE', email: s.email, registeredCity: 'Ranchi', registeredState: 'Jharkhand' }, s.token);
+        const r = await register({ fullName: 'Asha Verma', email: s.email, registeredCity: 'Ranchi', registeredState: 'Jharkhand' }, s.token);
         const rider = r.body?.data?.rider;
         return { actual: `${label(r)} ${rider?.status} complete=${rider?.isProfileComplete} emailVerified=${rider?.isEmailVerified}`, pass: r.status === 200 && rider.status === 'ACTIVE' && rider.isProfileComplete === true && rider.isEmailVerified === false && rider.email === s.email };
       });
@@ -266,15 +266,15 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
       const detail = (r: Reply) => r.body?.error?.details?.map((d: any) => `${d.field}:${d.reason}`).join(',');
 
       await check(15, 'register, empty fullName', '400 INVALID_INPUT', async () => {
-        const r = await register({ fullName: '', gender: 'FEMALE' }, rider.token);
+        const r = await register({ fullName: '' }, rider.token);
         return { actual: `${label(r)} ${detail(r)}`, pass: r.status === 400 && r.body.error.code === 'INVALID_INPUT' };
       });
       await check(16, 'register, bad email', '400 INVALID_INPUT', async () => {
-        const r = await register({ fullName: 'Asha Verma', gender: 'FEMALE', email: 'not-an-email' }, rider.token);
+        const r = await register({ fullName: 'Asha Verma', email: 'not-an-email' }, rider.token);
         return { actual: `${label(r)} ${detail(r)}`, pass: r.status === 400 && r.body.error.code === 'INVALID_INPUT' };
       });
       await check(17, 'register, unknown field', '400 INVALID_INPUT / UNKNOWN_FIELD', async () => {
-        const r = await register({ fullName: 'Asha Verma', gender: 'FEMALE', role: 'ADMIN' }, rider.token);
+        const r = await register({ fullName: 'Asha Verma', role: 'ADMIN' }, rider.token);
         return { actual: `${label(r)} ${detail(r)}`, pass: r.status === 400 && detail(r) === 'role:UNKNOWN_FIELD' };
       });
       await check(18, 'send-otp with a purpose field', '400 INVALID_INPUT / UNKNOWN_FIELD', async () => {
@@ -291,14 +291,14 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
     it('cases 19 to 21', async () => {
       await check(19, 'two riders, same email', '2nd: 409 EMAIL_IN_USE', async () => {
         const [a, b] = [await newRider(), await newRider()];
-        const first = await register({ fullName: 'Rider One', gender: 'FEMALE', email: 'same@example.com' }, a.token);
-        const second = await register({ fullName: 'Rider Two', gender: 'FEMALE', email: 'same@example.com' }, b.token);
+        const first = await register({ fullName: 'Rider One', email: 'same@example.com' }, a.token);
+        const second = await register({ fullName: 'Rider Two', email: 'same@example.com' }, b.token);
         return { actual: `1st ${first.status}, 2nd ${label(second)} field=${second.body?.error?.field}`, pass: first.status === 200 && second.status === 409 && second.body.error.code === 'EMAIL_IN_USE' && second.body.error.field === 'email' };
       });
 
       await check(20, '5 parallel registers, same email', 'one 200, four 409 EMAIL_IN_USE', async () => {
         const riders = await Promise.all(Array.from({ length: 5 }, () => newRider()));
-        const replies = await Promise.all(riders.map((r, i) => register({ fullName: `Rider ${i}x`.replace(/\d/g, 'A'), gender: 'FEMALE', email: 'race@example.com' }, r.token)));
+        const replies = await Promise.all(riders.map((r, i) => register({ fullName: `Rider ${i}x`.replace(/\d/g, 'A'), email: 'race@example.com' }, r.token)));
         const ok = replies.filter((r) => r.status === 200).length;
         const conflicts = replies.filter((r) => r.status === 409 && r.body.error.code === 'EMAIL_IN_USE').length;
         const holders = await pool.query(`SELECT count(*)::int AS n FROM "Rider" WHERE email = 'race@example.com'`);
@@ -308,10 +308,10 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
       await check(21, 'SUSPENDED rider: register, then verify-otp', '403 BANNED, sessions deleted, 401 after', async () => {
         const rider = await newRider();
         await pool.query(`UPDATE "Rider" SET status = 'SUSPENDED' WHERE id = $1`, [rider.id]);
-        const reg = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, rider.token);
+        const reg = await register({ fullName: 'Asha Verma' }, rider.token);
         const login = await loginAgain(rider.phone);
         const left = await pool.query(`SELECT count(*)::int AS n FROM "RefreshToken" WHERE "riderId" = $1`, [rider.id]);
-        const dead = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, rider.token);
+        const dead = await register({ fullName: 'Asha Verma' }, rider.token);
         return { actual: `register ${label(reg)}; sessions left=${left.rows[0].n}; token then ${dead.status}; verify-otp ${label(login)}`, pass: reg.status === 403 && reg.body.error.code === 'ACCOUNT_BANNED' && left.rows[0].n === 0 && dead.status === 401 && login.status === 403 && login.body.error.code === 'ACCOUNT_BANNED' };
       });
     });
@@ -388,9 +388,9 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
         await pool.query(`UPDATE "RefreshToken" SET "expiresAt" = now() + interval '30 days' - interval '2 hours' WHERE "riderId" = $1`, [r.id]);
         const ms = async () => Number((await pool.query(`SELECT (extract(epoch from "expiresAt") * 1000)::float8 AS ms, extract(epoch from now() + interval '30 days') * 1000 AS target FROM "RefreshToken" WHERE "riderId" = $1`, [r.id])).rows[0].ms);
         const before = await ms();
-        const first = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, r.token);
+        const first = await register({ fullName: 'Asha Verma' }, r.token);
         const afterFirst = await ms();
-        const second = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, r.token);
+        const second = await register({ fullName: 'Asha Verma' }, r.token);
         const afterSecond = await ms();
         const gainedMs = afterFirst - before;
         return { actual: `${first.status}/${second.status} extended by ${Math.round(gainedMs / 60000)} min, 2nd call changed=${afterSecond !== afterFirst}`, pass: first.status === 200 && second.status === 200 && gainedMs > 100 * 60000 && afterSecond === afterFirst };
@@ -432,8 +432,8 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
         const phone = newPhone();
         const a = await login('rider', phone, A);
         const b = await login('rider', phone, B);
-        const ra = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, a.token);
-        const rb = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, b.token);
+        const ra = await register({ fullName: 'Asha Verma' }, a.token);
+        const rb = await register({ fullName: 'Asha Verma' }, b.token);
         const rows = await sessionRows('RefreshToken', 'riderId', a.accountId);
         return { actual: `A ${ra.status}; B ${rb.status}; sessions=${rows}`, pass: ra.status === 200 && rb.status === 200 && rows === 2 };
       });
@@ -442,8 +442,8 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
         const phone = newPhone();
         const first = await login('rider', phone, A);
         const second = await login('rider', phone, A);
-        const oldR = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, first.token);
-        const newR = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, second.token);
+        const oldR = await register({ fullName: 'Asha Verma' }, first.token);
+        const newR = await register({ fullName: 'Asha Verma' }, second.token);
         const rows = await sessionRows('RefreshToken', 'riderId', first.accountId);
         return { actual: `old ${oldR.status}; new ${newR.status}; sessions=${rows}`, pass: oldR.status === 401 && newR.status === 200 && rows === 1 };
       });
@@ -451,7 +451,7 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
       await check(32, 'rider logout, then token is dead', '200 loggedOut true; register 401', async () => {
         const r = await login('rider', newPhone(), A);
         const out = await logout('rider', r.token);
-        const reg = await register({ fullName: 'Asha Verma', gender: 'FEMALE' }, r.token);
+        const reg = await register({ fullName: 'Asha Verma' }, r.token);
         return { actual: `${label(out)} loggedOut=${out.body?.data?.loggedOut}; register then ${label(reg)}`, pass: out.status === 200 && out.body.data.loggedOut === true && reg.status === 401 };
       });
 
@@ -505,54 +505,55 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
         };
       });
 
-      await check(37, 'register completes: new fields, terms proof set', '200, gender, address, Title Case, terms set', async () => {
-        const reg = await register({ fullName: '  Asha   Verma ', gender: 'FEMALE', email: ' E2E.Fields@Example.COM ', registeredCity: 'ranchi', registeredState: 'JHARKHAND', registeredAddress: '12/B, Main Road (near Park) #4' }, r.token);
+      await check(37, 'register completes: new fields, terms proof set', '200, address, Title Case, terms set, no gender key', async () => {
+        const reg = await register({ fullName: '  Asha   Verma ', email: ' E2E.Fields@Example.COM ', registeredCity: 'ranchi', registeredState: 'JHARKHAND', registeredAddress: '12/B, Main Road (near Park) #4' }, r.token);
         const row = await riderRow(r.id);
         const d = reg.body?.data?.rider;
         return {
-          actual: `${label(reg)} ${d?.gender} ${d?.registeredCity}/${d?.registeredState} v=${d?.termsVersion} ist=${d?.termsAcceptedAtIst}`,
+          actual: `${label(reg)} gender-key=${d !== undefined && 'gender' in d} ${d?.registeredCity}/${d?.registeredState} v=${d?.termsVersion} ist=${d?.termsAcceptedAtIst}`,
           pass:
-            reg.status === 200 && d.fullName === 'Asha Verma' && d.gender === 'FEMALE' && d.email === 'e2e.fields@example.com' && d.registeredCity === 'Ranchi' && d.registeredState === 'Jharkhand' &&
+            reg.status === 200 && d.fullName === 'Asha Verma' && !('gender' in d) && d.email === 'e2e.fields@example.com' && d.registeredCity === 'Ranchi' && d.registeredState === 'Jharkhand' &&
             d.registeredAddress === '12/B, Main Road (near Park) #4' && d.termsVersion === '2026-10-v1' && IST.test(d.termsAcceptedAtIst) && row.termsAcceptedAt !== null && row.termsVersion === '2026-10-v1',
         };
       });
 
-      await check(38, 'second register: terms not overwritten, gender kept', 'same termsAcceptedAt, gender FEMALE', async () => {
+      await check(38, 'second register: terms not overwritten', 'same termsAcceptedAt', async () => {
         const before = await riderRow(r.id);
         const reg = await register({ registeredCity: 'Ranchi' }, r.token);
         const after = await riderRow(r.id);
         return {
-          actual: `${label(reg)} same=${before.termsAcceptedAt?.getTime() === after.termsAcceptedAt?.getTime()} gender=${after.gender}`,
-          pass: reg.status === 200 && before.termsAcceptedAt.getTime() === after.termsAcceptedAt.getTime() && after.gender === 'FEMALE',
+          actual: `${label(reg)} same=${before.termsAcceptedAt?.getTime() === after.termsAcceptedAt?.getTime()}`,
+          pass: reg.status === 200 && before.termsAcceptedAt.getTime() === after.termsAcceptedAt.getTime(),
         };
       });
 
-      await check(39, 'old ACTIVE rider (NULL new columns) registers without gender', '200, columns stay NULL', async () => {
+      await check(39, 'old ACTIVE rider (NULL new columns) registers again', '200, columns stay NULL', async () => {
         const old = await fresh(sdev({}, 'e2e-dev-old'));
         await pool.query(`UPDATE "Rider" SET status = 'ACTIVE', "isProfileComplete" = true, "fullName" = 'Old Rider' WHERE id = $1`, [old.id]);
         const reg = await register({ fullName: 'Old Rider Two' }, old.token);
         const row = await riderRow(old.id);
         return {
-          actual: `${label(reg)} gender=${row.gender} addr=${row.registeredAddress} terms=${row.termsAcceptedAt}`,
-          pass: reg.status === 200 && row.gender === null && row.registeredAddress === null && row.termsAcceptedAt === null && row.termsVersion === null,
+          actual: `${label(reg)} addr=${row.registeredAddress} terms=${row.termsAcceptedAt}`,
+          pass: reg.status === 200 && row.registeredAddress === null && row.termsAcceptedAt === null && row.termsVersion === null,
         };
       });
 
-      await check(40, 'complete without gender; bad gender and mass assignment rejected', '200 gender NULL; 400 NOT_ALLOWED; 400 UNKNOWN_FIELD', async () => {
+      await check(40, 'gender is rejected as UNKNOWN_FIELD; no gender in replies', '400 UNKNOWN_FIELD; 200 without gender key; column NULL', async () => {
         const p = await fresh(sdev({}, 'e2e-dev-p'));
-        const noGender = await register({ fullName: 'Asha Verma' }, p.token);
-        const afterNoGender = await riderRow(p.id);
-        const badGender = await register({ fullName: 'Asha Verma', gender: 'male' }, p.token);
-        const goodGender = await register({ gender: 'OTHER' }, p.token);
-        const mass = await register({ fullName: 'Asha Verma', gender: 'MALE', termsAccepted: true, termsAcceptedAt: '2000-01-01T00:00:00.000Z', platform: 'IOS' }, p.token);
-        const row = await riderRow(p.id);
         const reasons = (x: Reply) => (x.body?.error?.details ?? []).map((d: { field: string; reason: string }) => `${d.field}:${d.reason}`).join(',');
+        const withGender = await register({ fullName: 'Asha Verma', gender: 'MALE' }, p.token);
+        const rowBefore = await riderRow(p.id);
+        const done = await register({ fullName: 'Asha Verma' }, p.token);
+        const withMass = await register({ fullName: 'Asha Verma', termsAccepted: true, termsAcceptedAt: '2000-01-01T00:00:00.000Z', platform: 'IOS' }, p.token);
+        const row = await riderRow(p.id);
+        const verified = await again(p.phone, sdev({}, 'e2e-dev-p'));
         return {
-          actual: `${noGender.status} gender=${afterNoGender.gender} status=${afterNoGender.status}; ${badGender.status} ${reasons(badGender)}; ${goodGender.status} ${goodGender.body?.data?.rider?.gender}; ${mass.status} ${reasons(mass)}`,
+          actual: `${withGender.status} ${reasons(withGender)} status=${rowBefore.status}; ${done.status} gender-key=${'gender' in (done.body?.data?.rider ?? {})}; mass ${withMass.status}; verify-otp gender-key=${'gender' in (verified.body?.data?.rider ?? {})}`,
           pass:
-            noGender.status === 200 && afterNoGender.gender === null && afterNoGender.status === 'ACTIVE' && afterNoGender.termsAcceptedAt !== null &&
-            badGender.status === 400 && reasons(badGender) === 'gender:NOT_ALLOWED' && goodGender.status === 200 && goodGender.body.data.rider.gender === 'OTHER' &&
-            mass.status === 400 && reasons(mass).split(',').every((x: string) => x.endsWith(':UNKNOWN_FIELD')) && row.gender === 'OTHER',
+            withGender.status === 400 && reasons(withGender) === 'gender:UNKNOWN_FIELD' && rowBefore.status === 'PROFILE_PENDING' &&
+            done.status === 200 && !('gender' in done.body.data.rider) && row.gender === null &&
+            withMass.status === 400 && reasons(withMass).split(',').every((x: string) => x.endsWith(':UNKNOWN_FIELD')) &&
+            verified.status === 200 && !('gender' in verified.body.data.rider),
         };
       });
 
