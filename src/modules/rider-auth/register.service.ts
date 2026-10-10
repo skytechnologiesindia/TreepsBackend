@@ -30,15 +30,12 @@ export class RegisterService {
     const current = await this.prisma.rider.findUnique({ where: { id: riderId } });
     if (!current) throw new AppException('UNAUTHORIZED');
 
-    // Completing the profile (PROFILE_PENDING -> ACTIVE) needs the name and the gender. The DTO cannot
-    // know the state, so it is checked here, with the same INVALID_INPUT shape the validation pipe
-    // gives (field name and reason only). An ACTIVE rider calling again may send any subset.
-    const completing = current.status === RiderStatus.PROFILE_PENDING;
-    if (completing) {
-      const missing = (['fullName', 'gender'] as const).filter((field) => dto[field] === undefined);
-      if (missing.length > 0) {
-        throw new AppException('INVALID_INPUT', { field: missing[0], details: missing.map((field) => ({ field, reason: 'REQUIRED' })) });
-      }
+    // Completing the profile (PROFILE_PENDING -> ACTIVE) needs the name. The DTO cannot know the state,
+    // so it is checked here, with the same INVALID_INPUT shape the validation pipe gives (field name
+    // and reason only). Gender is never required (decision 183). An ACTIVE rider calling again may
+    // send any subset.
+    if (current.status === RiderStatus.PROFILE_PENDING && dto.fullName === undefined) {
+      throw new AppException('INVALID_INPUT', { field: 'fullName', details: [{ field: 'fullName', reason: 'REQUIRED' }] });
     }
 
     // 5. Pre-check, so a fixable mistake gets a clear answer before the write. The rider's own email

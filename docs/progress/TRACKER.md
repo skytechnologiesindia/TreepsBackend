@@ -96,6 +96,7 @@ Docs updated, **code not changed, owner approval pending**: `api/rider-verify-ot
 - [x] Removed: refresh endpoint, `REFRESH_TOKEN_INVALID`, rotation code, JWT code, `JWT_ACCESS_SECRET`; docs updated, refresh docs deleted
 - [x] Real-Postgres e2e: 44 cases (`npm run e2e:rider`)
 - [x] 2026-10-10 register extended (decisions 179 to 182): `gender`, `registeredAddress`, server-set `termsAcceptedAt` / `termsVersion` (env `TERMS_VERSION`), cleaned text fields; verify-otp device object (`platform`, `appVersion` pattern, optional `fcmToken`, refreshed every login, never returned); logout deletes the device row. Docs updated, e2e 44 cases
+- [x] 2026-10-10 `gender` made optional in register (decision 183); making it required again once the UI has the button: TO DECIDE
 - [ ] **Migration `20261010120000_rider_terms_and_address` is written and checked on a scratch database but NOT applied to `treeps_db`: owner reviews the SQL and backs up first**
 - [ ] Cleanup of device rows (and tokens) left behind by expired or banned sessions (TO DECIDE)
 - [ ] Later: drop the unused `revokedAt` column and rename the two tables to `Session` / `DriverSession` (migration, TO DECIDE); a cache inside `SessionService`; cleanup of expired session rows (TO DECIDE)

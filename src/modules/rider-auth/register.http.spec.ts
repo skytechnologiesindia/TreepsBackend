@@ -174,6 +174,18 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
       expect(reply.error.code).toBe('EMAIL_IN_USE');
     });
 
+    it('completing the profile WITHOUT gender works and the gender stays NULL; a later call may add it', async () => {
+      const { token } = await ctx.pendingRider();
+      const done = await register(ctx.app, { fullName: 'Asha Verma' }, token);
+      expect(done.res.status).toBe(200);
+      expect(done.body.data.rider).toMatchObject({ status: 'ACTIVE', isProfileComplete: true, gender: null, termsVersion: TERMS_VERSION });
+      expect(ctx.db.tables.rider[0].gender).toBeNull();
+      const added = await register(ctx.app, { gender: 'OTHER' }, token);
+      expect(added.body.data.rider.gender).toBe('OTHER');
+      const kept = await register(ctx.app, { registeredCity: 'Ranchi' }, token);
+      expect(kept.body.data.rider.gender).toBe('OTHER');
+    });
+
     it('a second call by an ACTIVE rider needs neither gender nor fullName, and keeps what is stored', async () => {
       const { token } = await ctx.pendingRider();
       await register(ctx.app, body({ gender: 'MALE', registeredAddress: 'Doranda' }), token);
@@ -460,13 +472,9 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
       return reply.error.details;
     };
 
-    it('a PROFILE_PENDING rider must send fullName and gender: each missing one is REQUIRED', async () => {
-      expect(await detailsOf({})).toEqual([
-        { field: 'fullName', reason: 'REQUIRED' },
-        { field: 'gender', reason: 'REQUIRED' },
-      ]);
+    it('a PROFILE_PENDING rider must send fullName; gender is never required', async () => {
+      expect(await detailsOf({})).toEqual([{ field: 'fullName', reason: 'REQUIRED' }]);
       expect(await detailsOf({ gender: 'MALE' })).toEqual([{ field: 'fullName', reason: 'REQUIRED' }]);
-      expect(await detailsOf({ fullName: 'Asha Verma' })).toEqual([{ field: 'gender', reason: 'REQUIRED' }]);
     });
 
     it('gender must be exactly MALE, FEMALE or OTHER', async () => {

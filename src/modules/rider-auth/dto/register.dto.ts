@@ -7,8 +7,9 @@ export type GenderName = (typeof GENDERS)[number];
 // rider id and the device id come from the session, and the terms proof (termsAcceptedAt,
 // termsVersion) is set by the server, never taken from the body.
 //
-// fullName and gender are required while the profile is PROFILE_PENDING and optional afterwards. The
-// DTO cannot know the state, so both are Optional here and RegisterService enforces "required".
+// fullName is required while the profile is PROFILE_PENDING and optional afterwards. The DTO cannot
+// know the state, so it is Optional here and RegisterService enforces "required". gender is never
+// required (decision 183): keep-if-omitted, and if sent it must be MALE, FEMALE or OTHER.
 // Text fields are cleaned by Normalize() before the checks (NFC, spaces, case); see fields.ts.
 export class RegisterDto {
   @Normalize({ blank: 'keep-empty' }) @Optional(PersonName()) fullName?: string;

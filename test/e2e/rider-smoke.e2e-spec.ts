@@ -538,15 +538,21 @@ describe.skipIf(process.env.RUN_E2E_PG !== '1')(`rider flow smoke, real Postgres
         };
       });
 
-      await check(40, 'pending rider without gender, and mass assignment', '400 REQUIRED; 400 UNKNOWN_FIELD', async () => {
+      await check(40, 'complete without gender; bad gender and mass assignment rejected', '200 gender NULL; 400 NOT_ALLOWED; 400 UNKNOWN_FIELD', async () => {
         const p = await fresh(sdev({}, 'e2e-dev-p'));
-        const missing = await register({ fullName: 'Asha Verma' }, p.token);
+        const noGender = await register({ fullName: 'Asha Verma' }, p.token);
+        const afterNoGender = await riderRow(p.id);
+        const badGender = await register({ fullName: 'Asha Verma', gender: 'male' }, p.token);
+        const goodGender = await register({ gender: 'OTHER' }, p.token);
         const mass = await register({ fullName: 'Asha Verma', gender: 'MALE', termsAccepted: true, termsAcceptedAt: '2000-01-01T00:00:00.000Z', platform: 'IOS' }, p.token);
         const row = await riderRow(p.id);
         const reasons = (x: Reply) => (x.body?.error?.details ?? []).map((d: { field: string; reason: string }) => `${d.field}:${d.reason}`).join(',');
         return {
-          actual: `${missing.status} ${reasons(missing)}; ${mass.status} ${reasons(mass)}`,
-          pass: missing.status === 400 && reasons(missing) === 'gender:REQUIRED' && mass.status === 400 && reasons(mass).split(',').every((x: string) => x.endsWith(':UNKNOWN_FIELD')) && row.status === 'PROFILE_PENDING' && row.termsAcceptedAt === null,
+          actual: `${noGender.status} gender=${afterNoGender.gender} status=${afterNoGender.status}; ${badGender.status} ${reasons(badGender)}; ${goodGender.status} ${goodGender.body?.data?.rider?.gender}; ${mass.status} ${reasons(mass)}`,
+          pass:
+            noGender.status === 200 && afterNoGender.gender === null && afterNoGender.status === 'ACTIVE' && afterNoGender.termsAcceptedAt !== null &&
+            badGender.status === 400 && reasons(badGender) === 'gender:NOT_ALLOWED' && goodGender.status === 200 && goodGender.body.data.rider.gender === 'OTHER' &&
+            mass.status === 400 && reasons(mass).split(',').every((x: string) => x.endsWith(':UNKNOWN_FIELD')) && row.gender === 'OTHER',
         };
       });
 

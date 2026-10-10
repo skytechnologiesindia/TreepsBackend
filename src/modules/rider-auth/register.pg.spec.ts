@@ -91,6 +91,16 @@ describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/rider/auth/register email race, rea
     expect(await db.prisma.rider.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ email: 'me@example.com', status: 'ACTIVE', isProfileComplete: true });
   });
 
+  it('completing without gender stores NULL (a nullable column); a later call may set it and a call without it keeps it', async () => {
+    const a = await pendingRider();
+    const service = raceOf(1);
+    await service.completeProfile(a.id, { fullName: 'Asha Verma' });
+    expect(await db.prisma.rider.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ status: 'ACTIVE', gender: null, termsVersion: 'test-terms-v1' });
+    await service.completeProfile(a.id, { gender: 'OTHER' });
+    await service.completeProfile(a.id, { registeredCity: 'Ranchi' });
+    expect(await db.prisma.rider.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ gender: 'OTHER', fullName: 'Asha Verma' });
+  });
+
   it('a changed email resets isEmailVerified; an omitted email stays', async () => {
     const a = await pendingRider({ email: 'old@example.com', isEmailVerified: true });
     const service = raceOf(1);
