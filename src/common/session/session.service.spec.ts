@@ -78,6 +78,23 @@ describe('SessionService', () => {
     expect(db.calls['refreshToken.updateMany']).toBe(1);
   });
 
+  it('logout deletes the session AND the device row of that device only (the push token goes with it)', async () => {
+    const { db, sessions } = setup();
+    db.tables.device.push({ id: 'x1', riderId: 'r1', deviceId: 'd1', fcmToken: 'tok-1' }, { id: 'x2', riderId: 'r1', deviceId: 'd2', fcmToken: 'tok-2' });
+    db.tables.driverDevice.push({ id: 'y1', driverId: 'dr1', deviceId: 'd1', fcmToken: 'tok-3' });
+    await sessions.create({ role: 'RIDER', accountId: 'r1', deviceId: 'd1', now: NOW });
+    await sessions.create({ role: 'RIDER', accountId: 'r1', deviceId: 'd2', now: NOW });
+    await sessions.create({ role: 'DRIVER', accountId: 'dr1', deviceId: 'd1', now: NOW });
+    await sessions.logout('RIDER', 'r1', 'd1');
+    await sessions.logout('RIDER', 'r1', 'd1'); // absent rows are fine
+    expect(db.tables.device.map((d) => d.deviceId)).toEqual(['d2']);
+    expect(db.tables.refreshToken.map((r) => r.deviceId)).toEqual(['d2']);
+    expect(db.tables.driverDevice).toHaveLength(1);
+    await sessions.logout('DRIVER', 'dr1', 'd1');
+    expect(db.tables.driverDevice).toHaveLength(0);
+    expect(db.tables.driverRefreshToken).toHaveLength(0);
+  });
+
   it('deleteForDevice removes one device session and nothing else; deleting an absent one is fine', async () => {
     const { sessions } = setup();
     const a = await sessions.create({ role: 'RIDER', accountId: 'r1', deviceId: 'd1', now: NOW });

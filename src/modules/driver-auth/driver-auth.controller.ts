@@ -41,14 +41,14 @@ export class DriverAuthController {
     return this.driverVerifyOtpService.verifyOtp(dto);
   }
 
-  // Protected route: deletes this device's session. The token is dead at once. A token that is already
+  // Protected route: deletes this device's session and its device row (so the push token goes too). The token is dead at once. A token that is already
   // unknown is 401 from the guard, like any guarded route (docs/api/driver-logout.md).
   @RateLimit({ name: 'driver-logout', ip: RATE_LIMITS.logout.ip })
   @UseGuards(SessionAuthGuard)
   @HttpCode(200)
   @Post('logout')
   async logout(@AuthUser() user: AuthClaims) {
-    await this.sessions.deleteForDevice(user.role, user.userId, user.deviceId);
+    await this.sessions.logout(user.role, user.userId, user.deviceId);
     return { loggedOut: true };
   }
 }

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { REASON_CODES } from '../common/validation/validation-reasons.js';
 import {
   DEFAULT_PORT,
+  DEFAULT_TERMS_VERSION,
   DEFAULT_TRUST_PROXY_HOPS,
   EnvConfigError,
   NODE_ENVS,
@@ -291,6 +292,21 @@ describe('validateEnv', () => {
     it('a value that is not a string is INVALID_FORMAT', () => {
       expect(reasonsFor('TRUST_PROXY_HOPS', { ...VALID, TRUST_PROXY_HOPS: 1 })).toEqual(['INVALID_FORMAT']);
       expect(reasonsFor('TRUST_PROXY_HOPS', { ...VALID, TRUST_PROXY_HOPS: null })).toEqual(['INVALID_FORMAT']);
+    });
+  });
+
+  describe('TERMS_VERSION', () => {
+    it('defaults to 2026-10-v1 when it is not set', () => {
+      expect(validateEnv(VALID).TERMS_VERSION).toBe('2026-10-v1');
+      expect(DEFAULT_TERMS_VERSION).toBe('2026-10-v1');
+    });
+
+    it.each([['2027-01-v2'], ['v1'], ['a.b_c-d'], ['x'.repeat(32)]])('accepts %j', (value) => {
+      expect(validateEnv({ ...VALID, TERMS_VERSION: value }).TERMS_VERSION).toBe(value);
+    });
+
+    it.each([[''], [' v1'], ['v 1'], ['x'.repeat(33)], ['v1/../x'], [7], [null]])('%j is INVALID_FORMAT', (value) => {
+      expect(reasonsFor('TERMS_VERSION', { ...VALID, TERMS_VERSION: value })).toEqual(['INVALID_FORMAT']);
     });
   });
 

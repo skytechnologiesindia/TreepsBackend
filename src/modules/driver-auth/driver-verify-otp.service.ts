@@ -99,7 +99,8 @@ export class DriverVerifyOtpService {
             platform: device.platform,
             appVersion: device.appVersion,
             lastSeenAt: now,
-            ...(device.fcmToken !== undefined ? { fcmToken: device.fcmToken } : {}),
+            // A missing or null token keeps the stored one (the rider may have denied the permission this time).
+          ...(device.fcmToken != null ? { fcmToken: device.fcmToken } : {}),
           },
         });
         // One active session (decision 174): the session of this device is replaced and every other

@@ -46,10 +46,10 @@ describe.skipIf(!PG_TESTS_ENABLED)(`POST /v1/rider/auth/register email race, rea
     const prisma = new Proxy(db.prisma, {
       get: (target, property, receiver) => (property === 'rider' ? rider : Reflect.get(target, property, receiver)),
     });
-    return new RegisterService(prisma as unknown as PrismaService, () => new Date());
+    return new RegisterService(prisma as unknown as PrismaService, () => new Date(), { get: () => 'test-terms-v1' } as never);
   }
 
-  const dto = (overrides: Partial<RegisterDto> = {}): RegisterDto => ({ fullName: 'Asha Verma', ...overrides });
+  const dto = (overrides: Partial<RegisterDto> = {}): RegisterDto => ({ fullName: 'Asha Verma', gender: 'FEMALE', ...overrides });
   const outcome = async (promise: Promise<unknown>) => {
     try {
       await promise;

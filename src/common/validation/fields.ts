@@ -135,13 +135,30 @@ export function DeviceId(): FieldType {
   };
 }
 
-// The app version: MAJOR.MINOR.PATCH, 1 to 3 ASCII digits each (so 5 to 11 characters).
-const APP_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+// The app version label: 1 to 20 characters from A-Z a-z 0-9 . + _ - (so 1.4.2, 1.4.2+37 and
+// 2.0.0-beta.1 all pass). The shape check allows an empty string on purpose, so "" is TOO_SHORT.
+const APP_VERSION_SHAPE = /^[0-9A-Za-z.+_-]*$/;
 export function AppVersion(): FieldType {
   return {
     checks: [
       check(CHECK_KEYS.wrongType, isString),
-      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || APP_VERSION.test(v)),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || APP_VERSION_SHAPE.test(v)),
+      check(CHECK_KEYS.tooShort, (v) => !isString(v) || v.length >= 1),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || v.length <= 20),
+    ],
+  };
+}
+
+// The push token of one install (FCM): 1 to 512 characters, no whitespace of any kind and no NUL.
+// The value is never logged, returned or put in an error (error details carry the field name only).
+const FCM_TOKEN_SHAPE = /^\S*$/u;
+export function FcmToken(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || (FCM_TOKEN_SHAPE.test(v) && !v.includes('\u0000'))),
+      check(CHECK_KEYS.tooShort, (v) => !isString(v) || v.length >= 1),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || v.length <= 512),
     ],
   };
 }
@@ -157,10 +174,13 @@ export function OpaqueToken(): FieldType {
   };
 }
 
-// A person's name (decisions 135 and 141): 2 to 100 code points; Unicode letters, combining marks,
-// space, . ' ’ and -. Nothing is trimmed or fixed: a leading, trailing or double space, and a
-// hyphen that is first, last or doubled, are rejected. "" is REQUIRED, as for Text.
+// A person's name (decisions 135 and 141, changed 2026-10-10 by the owner): 2 to 50 code points with
+// at least 2 letters; Unicode letters, combining marks, space, . ' ’ and -. Digits, emoji, < > \ / @ # $
+// % & *, URLs, newlines and zero-width characters fail the character rule. The text is cleaned by
+// Normalize() before it gets here (NFC, spaces collapsed and trimmed), so a stray or double space is
+// fixed, not rejected. A hyphen that is first, last or doubled is still rejected.
 const PERSON_NAME_CHARACTERS = /^[\p{L}\p{M} .'’-]+$/u;
+const LETTER = /\p{L}/gu;
 function personNameShapeOk(value: string): boolean {
   return (
     PERSON_NAME_CHARACTERS.test(value) &&
@@ -179,10 +199,56 @@ export function PersonName(): FieldType {
       check(CHECK_KEYS.wrongType, isString),
       check(CHECK_KEYS.required, (v) => !blank(v)),
       check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || blank(v) || personNameShapeOk(v)),
-      check(CHECK_KEYS.tooShort, (v) => !isString(v) || blank(v) || codePointLength(v) >= 2),
-      check(CHECK_KEYS.tooLong, (v) => !isString(v) || codePointLength(v) <= 100),
+      check(CHECK_KEYS.tooShort, (v) => !isString(v) || blank(v) || (codePointLength(v) >= 2 && (v.match(LETTER)?.length ?? 0) >= 2)),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || codePointLength(v) <= 50),
     ],
   };
+}
+
+// A postal-style address line: at most 150 code points; Unicode letters, combining marks, decimal
+// digits, space and , . - / # ( ). Cleaned by Normalize() first.
+const ADDRESS_CHARACTERS = /^[\p{L}\p{M}\p{Nd} ,.\-/#()]*$/u;
+export function Address(): FieldType {
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || ADDRESS_CHARACTERS.test(v)),
+      check(CHECK_KEYS.tooLong, (v) => !isString(v) || codePointLength(v) <= 150),
+    ],
+  };
+}
+
+// The explicit clean-up the owner asked for on profile fields (2026-10-10; this replaces "nothing is
+// trimmed or fixed" for these fields only). It runs BEFORE the checks, as a class-transformer step.
+//   NFC       : composed form, so one name has one spelling.
+//   collapse  : runs of the space character (U+0020) become one space. A newline or a tab inside the
+//               text is left alone, so the character rule still rejects it.
+//   trim      : leading and trailing whitespace removed (String.prototype.trim).
+//   lower     : email.            title: city and state ("new delhi" -> "New Delhi").
+// blank is what a text with nothing left becomes: 'unset' makes it undefined (the field counts as
+// not sent), 'keep-empty' leaves "" so the length check can reject it. Only strings are touched; any
+// other type reaches the checks unchanged and fails there with WRONG_TYPE.
+export interface NormalizeOptions {
+  lower?: boolean;
+  title?: boolean;
+  blank: 'unset' | 'keep-empty';
+}
+function titleCase(text: string): string {
+  return text
+    .split(/([ -])/u)
+    .map((part) => (part.length === 0 ? part : part.charAt(0).toLocaleUpperCase() + part.slice(1).toLocaleLowerCase()))
+    .join('');
+}
+export function normalizeText(value: string, options: NormalizeOptions): string | undefined {
+  if (value === '' && options.blank === 'keep-empty') return value;
+  let text = value.normalize('NFC').trim().replace(/ {2,}/g, ' ');
+  if (options.lower) text = text.toLowerCase();
+  if (options.title) text = titleCase(text);
+  if (text === '') return options.blank === 'unset' ? undefined : text;
+  return text;
+}
+export function Normalize(options: NormalizeOptions): PropertyDecorator {
+  return Transform(({ value }) => (typeof value === 'string' ? normalizeText(value, options) : value));
 }
 
 // An email address (decisions 136, 142 and 145): at most 254 characters, no whitespace, no

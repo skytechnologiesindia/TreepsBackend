@@ -68,6 +68,17 @@ export class SessionService {
     else await db.driverRefreshToken.deleteMany({ where: { driverId: accountId, deviceId } });
   }
 
+  // Logout (decision 179): the session of one device AND that device's row, in one transaction. The
+  // device row is what holds the device's push token (fcmToken), so the token dies with the logout
+  // instead of staying behind; the next login upserts a new row. Deleting absent rows is not an error.
+  async logout(role: SessionRole, accountId: string, deviceId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.deleteForDevice(role, accountId, deviceId, tx);
+      if (role === RIDER_ROLE) await tx.device.deleteMany({ where: { riderId: accountId, deviceId } });
+      else await tx.driverDevice.deleteMany({ where: { driverId: accountId, deviceId } });
+    });
+  }
+
   // Every session of the account, optionally keeping one device (the driver's "one active session":
   // all others are deleted after a login). Also used when an account is banned.
   async deleteAllForAccount(role: SessionRole, accountId: string, options: { exceptDeviceId?: string } = {}, db: SessionDb = this.prisma): Promise<void> {

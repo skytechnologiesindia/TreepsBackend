@@ -1,15 +1,19 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
+  Address,
   AppVersion,
   DeviceId,
   Email,
+  FcmToken,
   IndianMobile,
   Latitude,
   Longitude,
   Money,
   Nested,
   NestedList,
+  Normalize,
+  normalizeText,
   OneOf,
   OpaqueToken,
   OptionalNullable,
@@ -322,20 +326,52 @@ describe('DeviceId', () => {
 });
 
 describe('AppVersion', () => {
-  it.each(['1.4.2', '10.0.123', '999.999.999', '0.0.0'])('accepts %j', async (appVersion) => {
+  it.each(['1.4.2', '10.0.123', '1.4', '1.4.2+37', '2.0.0-beta.1', '1_4_2', 'a'.repeat(20)])('accepts %j', async (appVersion) => {
     expect(await problems(Build, { appVersion })).toEqual([]);
   });
 
-  it.each(['1.4', 'v1.4.2', '1.4.2-beta', '1.4.2.1', '1.4.1000', '', '1..2', '1.4.2 ', ' 1.4.2', '١.٤.٢', 'a.b.c', '1.4.2\n'])(
-    'rejects %j as INVALID_FORMAT',
-    async (appVersion) => {
-      expect(await problems(Build, { appVersion })).toEqual([['appVersion', 'INVALID_FORMAT']]);
-    },
-  );
+  it.each(['1.4.2 ', ' 1.4.2', '1.4 2', '1.4.2\n', '١.٤.٢', 'v1.4.2/x', '1.4.2😀'])('rejects %j as INVALID_FORMAT', async (appVersion) => {
+    expect(await problems(Build, { appVersion })).toEqual([['appVersion', 'INVALID_FORMAT']]);
+  });
+
+  it('rejects "" as TOO_SHORT and 21 characters as TOO_LONG', async () => {
+    expect(await problems(Build, { appVersion: '' })).toEqual([['appVersion', 'TOO_SHORT']]);
+    expect(await problems(Build, { appVersion: 'a'.repeat(21) })).toEqual([['appVersion', 'TOO_LONG']]);
+  });
 
   it('a number is WRONG_TYPE and a missing value is REQUIRED', async () => {
     expect(await problems(Build, { appVersion: 1.4 })).toEqual([['appVersion', 'WRONG_TYPE']]);
     expect(await problems(Build, {})).toEqual([['appVersion', 'REQUIRED']]);
+  });
+});
+
+class Push {
+  @OptionalNullable(FcmToken()) fcmToken?: string | null;
+}
+describe('FcmToken', () => {
+  it('accepts a normal token, omitted and null', async () => {
+    expect(await problems(Push, { fcmToken: 'cX7:APA91bF-_x' })).toEqual([]);
+    expect(await problems(Push, {})).toEqual([]);
+    expect(await problems(Push, { fcmToken: null })).toEqual([]);
+  });
+
+  it('accepts exactly 512 characters and rejects 513 as TOO_LONG', async () => {
+    expect(await problems(Push, { fcmToken: 'a'.repeat(512) })).toEqual([]);
+    expect(await problems(Push, { fcmToken: 'a'.repeat(513) })).toEqual([['fcmToken', 'TOO_LONG']]);
+  });
+
+  it.each([['a space', 'abc def'], ['a leading space', ' abc'], ['a newline', 'abc\ndef'], ['a tab', 'abc\tdef'], ['a NUL', 'abc\u0000def']])('rejects %s as INVALID_FORMAT', async (_n, fcmToken) => {
+    expect(await problems(Push, { fcmToken })).toEqual([['fcmToken', 'INVALID_FORMAT']]);
+  });
+
+  it('rejects "" as TOO_SHORT and a number as WRONG_TYPE', async () => {
+    expect(await problems(Push, { fcmToken: '' })).toEqual([['fcmToken', 'TOO_SHORT']]);
+    expect(await problems(Push, { fcmToken: 7 })).toEqual([['fcmToken', 'WRONG_TYPE']]);
+  });
+
+  it('the error never contains the value', async () => {
+    const errors = await validate(plainToInstance(Push, { fcmToken: 'secret token' }), OPTIONS);
+    expect(JSON.stringify(toAppException(errors))).not.toContain('secret');
   });
 });
 
@@ -708,9 +744,6 @@ describe('PersonName', () => {
     ['a trailing hyphen', 'Mary-'],
     ['a double hyphen', 'Mary--Jane'],
     ['a digit', 'Anita1'],
-    ['a double space', 'Anita  Kumari'],
-    ['a leading space', ' Anita'],
-    ['a trailing space', 'Anita '],
     ['a tab', 'Anita	Kumari'],
     ['an emoji', 'Anita😀'],
     ['a null character', 'Anita K'],
@@ -718,15 +751,32 @@ describe('PersonName', () => {
     expect(await problems(FullName, { name })).toEqual([['name', 'INVALID_FORMAT']]);
   });
 
-  it('rejects 1 character as TOO_SHORT and 101 as TOO_LONG, and accepts exactly 100', async () => {
+  it('rejects 1 character as TOO_SHORT and 51 as TOO_LONG, and accepts exactly 50', async () => {
     expect(await problems(FullName, { name: 'A' })).toEqual([['name', 'TOO_SHORT']]);
-    expect(await problems(FullName, { name: 'A'.repeat(101) })).toEqual([['name', 'TOO_LONG']]);
-    expect(await problems(FullName, { name: 'A'.repeat(100) })).toEqual([]);
+    expect(await problems(FullName, { name: 'A'.repeat(51) })).toEqual([['name', 'TOO_LONG']]);
+    expect(await problems(FullName, { name: 'A'.repeat(50) })).toEqual([]);
+  });
+
+  it('needs at least 2 letters: punctuation does not count', async () => {
+    expect(await problems(FullName, { name: 'A.' })).toEqual([['name', 'TOO_SHORT']]);
+    expect(await problems(FullName, { name: '..' })).toEqual([['name', 'TOO_SHORT']]);
+    expect(await problems(FullName, { name: 'A.B' })).toEqual([]);
   });
 
   it('counts a Hindi name by code points, not bytes', async () => {
-    expect(await problems(FullName, { name: 'अ'.repeat(100) })).toEqual([]);
-    expect(await problems(FullName, { name: 'अ'.repeat(101) })).toEqual([['name', 'TOO_LONG']]);
+    expect(await problems(FullName, { name: 'अ'.repeat(50) })).toEqual([]);
+    expect(await problems(FullName, { name: 'अ'.repeat(51) })).toEqual([['name', 'TOO_LONG']]);
+  });
+
+  it.each([
+    ['a URL', 'http://x.com'],
+    ['an @', 'anita@x'],
+    ['a newline', 'Anita\nKumari'],
+    ['a zero-width space', 'Anita\u200bKumari'],
+    ['an angle bracket', '<Anita>'],
+    ['a backslash', 'Anita\\Kumari'],
+  ])('rejects %s as INVALID_FORMAT', async (_n, name) => {
+    expect(await problems(FullName, { name })).toEqual([['name', 'INVALID_FORMAT']]);
   });
 
   it('rejects an empty string as REQUIRED, a number as WRONG_TYPE, a missing value as REQUIRED', async () => {
@@ -790,5 +840,65 @@ describe('OptionalNullable with Text({ emptyIsTooShort })', () => {
 
   it('leaves Text unchanged by default: an empty required text is still REQUIRED', async () => {
     expect(await problems(Title, { t: '' })).toEqual([['t', 'REQUIRED']]);
+  });
+});
+
+class Cleaned {
+  @Normalize({ blank: 'keep-empty' }) @Optional(PersonName()) name?: string;
+  @Normalize({ lower: true, blank: 'unset' }) @Optional(Email()) email?: string;
+  @Normalize({ title: true, blank: 'unset' }) @OptionalNullable(Text({ min: 1, max: 60, emptyIsTooShort: true })) city?: string | null;
+  @Normalize({ blank: 'unset' }) @Optional(Address()) address?: string;
+}
+const cleaned = (payload: object) => plainToInstance(Cleaned, payload);
+
+describe('Normalize (profile text clean-up)', () => {
+  it('trims, collapses spaces and composes to NFC', () => {
+    expect(normalizeText('  Anita   Kumari  ', { blank: 'unset' })).toBe('Anita Kumari');
+    expect(normalizeText('Cafe\u0301', { blank: 'unset' })).toBe('Caf\u00e9');
+  });
+
+  it('lowercases an email and title-cases a city', () => {
+    expect(normalizeText(' Asha@Example.COM ', { lower: true, blank: 'unset' })).toBe('asha@example.com');
+    expect(normalizeText('new   DELHI', { title: true, blank: 'unset' })).toBe('New Delhi');
+    expect(normalizeText('dhanbad-jharia', { title: true, blank: 'unset' })).toBe('Dhanbad-Jharia');
+  });
+
+  it('a blank text is undefined (not sent), or stays "" for keep-empty', () => {
+    expect(normalizeText('   ', { blank: 'unset' })).toBeUndefined();
+    expect(normalizeText('', { blank: 'unset' })).toBeUndefined();
+    expect(normalizeText('   ', { blank: 'keep-empty' })).toBe('');
+  });
+
+  it('leaves a non-string alone, so the type check reports it', async () => {
+    expect(cleaned({ name: 7 }).name).toBe(7);
+    expect(await problems(Cleaned, { name: 7 })).toEqual([['name', 'WRONG_TYPE']]);
+    expect(await problems(Cleaned, { email: null })).toEqual([['email', 'WRONG_TYPE']]);
+  });
+
+  it('is applied before the checks: messy but valid input passes', async () => {
+    const payload = { name: '  Anita   Kumari ', email: ' ASHA@Example.com ', city: ' ranchi ' };
+    expect(await problems(Cleaned, payload)).toEqual([]);
+    expect(cleaned(payload)).toMatchObject({ name: 'Anita Kumari', email: 'asha@example.com', city: 'Ranchi' });
+  });
+
+  it('a blank email is not sent, a name of only spaces is REQUIRED', async () => {
+    expect(cleaned({ email: '   ' }).email).toBeUndefined();
+    expect(await problems(Cleaned, { email: '' })).toEqual([]);
+    expect(await problems(Cleaned, { name: '   ' })).toEqual([['name', 'REQUIRED']]);
+  });
+});
+
+describe('Address', () => {
+  it.each(['12/B, Main Road, Ranchi', 'Flat #4 (2nd floor) - Doranda', 'हिंदपीढ़ी, राँची 834001', 'a'.repeat(150)])('accepts %j', async (address) => {
+    expect(await problems(Cleaned, { address })).toEqual([]);
+  });
+
+  it.each(['Flat 4 <b>', 'Plot @ 5', "St. Mary's", 'Road; Ranchi', 'Road\nRanchi', 'Flat 4 😀', 'Road \u200b'])('rejects %j as INVALID_FORMAT', async (address) => {
+    expect(await problems(Cleaned, { address })).toEqual([['address', 'INVALID_FORMAT']]);
+  });
+
+  it('rejects 151 characters as TOO_LONG and a number as WRONG_TYPE', async () => {
+    expect(await problems(Cleaned, { address: 'a'.repeat(151) })).toEqual([['address', 'TOO_LONG']]);
+    expect(await problems(Cleaned, { address: 5 })).toEqual([['address', 'WRONG_TYPE']]);
   });
 });

@@ -22,6 +22,9 @@ model Rider {
   profilePicture    String? // Optional, updated later
   registeredCity    String? // Plain text as Google Maps returns it; never blocks registration
   registeredState   String? // Plain text as Google Maps returns it; never blocks registration
+  registeredAddress String? // Optional, typed by the rider on the profile screen; max 150 characters (API rule)
+  termsAcceptedAt   DateTime?   @db.Timestamptz(3) // Server-set once, when the profile is first completed
+  termsVersion      String? // The TERMS_VERSION in force at that moment; server-set with termsAcceptedAt
   status            RiderStatus @default(ACTIVE)
   isPhoneVerified   Boolean     @default(false) // The server sets true after the OTP check
   isEmailVerified   Boolean     @default(false) // Nothing verifies an email in the MVP

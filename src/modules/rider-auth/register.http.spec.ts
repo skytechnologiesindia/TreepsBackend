@@ -18,6 +18,7 @@ import { VerifyOtpService } from './verify-otp.service.js';
 
 const PHONE = '+919477172214';
 const FAKE_CODE = '123456';
+const TERMS_VERSION = 'test-terms-v1';
 const T0 = new Date('2026-10-05T10:00:00.000Z').getTime();
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const device = { deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2' };
@@ -38,7 +39,7 @@ async function startApp() {
       { provide: PrismaService, useValue: db },
       { provide: OTP_PROVIDER, useValue: new FakeOtpProvider(FAKE_CODE) },
       { provide: CLOCK, useValue: () => new Date(now) },
-      { provide: ConfigService, useValue: { get: () => 0 } },
+      { provide: ConfigService, useValue: { get: (key: string) => (key === 'TERMS_VERSION' ? TERMS_VERSION : 0) } },
       { provide: RateLimiter, useFactory: () => new RateLimiter() },
     ],
   }).compile();
@@ -72,7 +73,7 @@ async function call(app: INestApplication, path: string, payload: unknown, auth?
 // `token` is the bare access token; it is sent as "Bearer <token>".
 const register = (app: INestApplication, payload: unknown, token?: string, base: 'versioned' | 'raw' = 'versioned') =>
   call(app, 'register', payload, token === undefined ? undefined : `Bearer ${token}`, base);
-const body = (overrides: Record<string, unknown> = {}) => ({ fullName: 'Asha Verma', ...overrides });
+const body = (overrides: Record<string, unknown> = {}) => ({ fullName: 'Asha Verma', gender: 'FEMALE', ...overrides });
 
 describe('POST /v1/rider/auth/register (complete profile)', () => {
   let ctx: Ctx;
@@ -114,7 +115,110 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
       const completed = (await register(ctx.app, body(), token)).body.data.rider;
       await call(ctx.app, 'send-otp', { phoneNumber: '+919477172299' });
       const verified = await call(ctx.app, 'verify-otp', { phoneNumber: '+919477172299', otp: FAKE_CODE, device });
-      expect(Object.keys(completed).sort()).toEqual(Object.keys(verified.body.data.rider).sort());
+      // A null date has no Ist twin (a verify-otp rider has no terms time yet), so compare the base keys.
+      const baseKeys = (rider: object) => Object.keys(rider).filter((key) => !key.endsWith('Ist')).sort();
+      expect(baseKeys(completed)).toEqual(baseKeys(verified.body.data.rider));
+      expect(Object.keys(completed)).toEqual(expect.arrayContaining(['gender', 'registeredAddress', 'termsAcceptedAt', 'termsAcceptedAtIst', 'termsVersion']));
+      expect(Object.keys(completed)).not.toContain('lastLoginAt');
+    });
+
+    it('a PROFILE_PENDING rider completing the profile gets the new fields, the terms proof and the IST twin', async () => {
+      const { token } = await ctx.pendingRider();
+      const { body: reply } = await register(
+        ctx.app,
+        body({ gender: 'OTHER', registeredAddress: '12/B, Main Road (near Park) #4', registeredCity: 'ranchi', registeredState: 'JHARKHAND' }),
+        token,
+      );
+      expect(reply.success).toBe(true);
+      expect(reply.data.rider).toMatchObject({
+        gender: 'OTHER',
+        registeredAddress: '12/B, Main Road (near Park) #4',
+        registeredCity: 'Ranchi',
+        registeredState: 'Jharkhand',
+        termsAcceptedAt: new Date(T0).toISOString(),
+        termsAcceptedAtIst: '05-10-2026 15:30:00',
+        termsVersion: TERMS_VERSION,
+      });
+      expect(ctx.db.tables.rider[0]).toMatchObject({ termsAcceptedAt: new Date(T0), termsVersion: TERMS_VERSION });
+    });
+
+    it('the name is trimmed, spaces are collapsed and the text is composed to NFC', async () => {
+      const { token } = await ctx.pendingRider();
+      const { body: reply } = await register(ctx.app, body({ fullName: "  Anita    O'Souza  Cafe\u0301 " }), token);
+      expect(reply.data.rider.fullName).toBe("Anita O'Souza Caf\u00e9");
+    });
+
+    it('an email is trimmed and lowercased; a blank email is not sent and keeps the stored one', async () => {
+      const { token } = await ctx.pendingRider();
+      const first = await register(ctx.app, body({ email: '  Asha.Verma@Example.COM ' }), token);
+      expect(first.body.data.rider.email).toBe('asha.verma@example.com');
+      const second = await register(ctx.app, body({ email: '   ' }), token);
+      expect(second.res.status).toBe(200);
+      expect(second.body.data.rider.email).toBe('asha.verma@example.com');
+      const third = await register(ctx.app, body({ email: '' }), token);
+      expect(third.body.data.rider.email).toBe('asha.verma@example.com');
+    });
+
+    it('a blank email on the first call stores null, never an empty string', async () => {
+      const { token } = await ctx.pendingRider();
+      const { body: reply } = await register(ctx.app, body({ email: '  ' }), token);
+      expect(reply.data.rider.email).toBeNull();
+      expect(ctx.db.tables.rider[0].email).toBeNull();
+    });
+
+    it('the uppercase form of a taken email is EMAIL_IN_USE (it is lowercased first)', async () => {
+      ctx.db.addRider({ phoneNumber: '+919000000001', email: 'taken@example.com' });
+      const { token } = await ctx.pendingRider();
+      const { res, body: reply } = await register(ctx.app, body({ email: 'TAKEN@Example.com' }), token);
+      expect(res.status).toBe(409);
+      expect(reply.error.code).toBe('EMAIL_IN_USE');
+    });
+
+    it('a second call by an ACTIVE rider needs neither gender nor fullName, and keeps what is stored', async () => {
+      const { token } = await ctx.pendingRider();
+      await register(ctx.app, body({ gender: 'MALE', registeredAddress: 'Doranda' }), token);
+      const { res, body: reply } = await register(ctx.app, {}, token);
+      expect(res.status).toBe(200);
+      expect(reply.data.rider).toMatchObject({ fullName: 'Asha Verma', gender: 'MALE', registeredAddress: 'Doranda', status: 'ACTIVE' });
+    });
+
+    it('an ACTIVE rider from before these columns (gender, address and terms null) keeps NULL and is not forced to send gender', async () => {
+      const old = ctx.db.addRider({ phoneNumber: '+919000000002', status: 'ACTIVE', isProfileComplete: true });
+      const { res, body: reply } = await register(ctx.app, { fullName: 'Asha Verma', registeredCity: 'Ranchi' }, await ctx.riderToken(old.id as string));
+      expect(res.status).toBe(200);
+      expect(reply.data.rider).toMatchObject({ gender: null, registeredAddress: null, termsAcceptedAt: null, termsVersion: null });
+      expect(reply.data.rider.termsAcceptedAtIst).toBeUndefined();
+    });
+
+    it('gender and address are keep-if-omitted, and an ACTIVE rider may change them', async () => {
+      const { token } = await ctx.pendingRider();
+      await register(ctx.app, body({ gender: 'FEMALE', registeredAddress: 'Doranda' }), token);
+      const kept = await register(ctx.app, body(), token);
+      expect(kept.body.data.rider).toMatchObject({ gender: 'FEMALE', registeredAddress: 'Doranda' });
+      const changed = await register(ctx.app, body({ gender: 'OTHER', registeredAddress: 'Kanke Road' }), token);
+      expect(changed.body.data.rider).toMatchObject({ gender: 'OTHER', registeredAddress: 'Kanke Road' });
+    });
+
+    it('termsAcceptedAt and termsVersion are set once, at completion, and never overwritten', async () => {
+      const { token } = await ctx.pendingRider();
+      const first = (await register(ctx.app, body(), token)).body.data.rider;
+      ctx.advance(3_600_000);
+      const second = (await register(ctx.app, body({ registeredCity: 'Ranchi' }), token)).body.data.rider;
+      expect(second.termsAcceptedAt).toBe(first.termsAcceptedAt);
+      expect(second.termsVersion).toBe(first.termsVersion);
+      expect(ctx.db.tables.rider[0].updatedAt).toEqual(new Date(T0 + 3_600_000)); // the second call did write
+    });
+
+    it('terms proof and lastLoginAt can never be set from the body (UNKNOWN_FIELD, nothing is written)', async () => {
+      const { token } = await ctx.pendingRider();
+      const { res, body: reply } = await register(
+        ctx.app,
+        body({ termsAcceptedAt: '2000-01-01T00:00:00.000Z', termsVersion: 'x', termsAccepted: true, lastLoginAt: '2000-01-01T00:00:00.000Z', status: 'ACTIVE' }),
+        token,
+      );
+      expect(res.status).toBe(400);
+      expect(reply.error.details.map((d: { reason: string }) => d.reason)).toEqual(['UNKNOWN_FIELD', 'UNKNOWN_FIELD', 'UNKNOWN_FIELD', 'UNKNOWN_FIELD', 'UNKNOWN_FIELD']);
+      expect(ctx.db.tables.rider[0]).toMatchObject({ status: 'PROFILE_PENDING', termsAcceptedAt: null, termsVersion: null });
     });
 
     it('is not served without the /v1 prefix (NOT_FOUND)', async () => {
@@ -356,24 +460,57 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
       return reply.error.details;
     };
 
-    it('missing fullName is REQUIRED', async () => {
-      expect(await detailsOf({})).toEqual([{ field: 'fullName', reason: 'REQUIRED' }]);
+    it('a PROFILE_PENDING rider must send fullName and gender: each missing one is REQUIRED', async () => {
+      expect(await detailsOf({})).toEqual([
+        { field: 'fullName', reason: 'REQUIRED' },
+        { field: 'gender', reason: 'REQUIRED' },
+      ]);
+      expect(await detailsOf({ gender: 'MALE' })).toEqual([{ field: 'fullName', reason: 'REQUIRED' }]);
+      expect(await detailsOf({ fullName: 'Asha Verma' })).toEqual([{ field: 'gender', reason: 'REQUIRED' }]);
+    });
+
+    it('gender must be exactly MALE, FEMALE or OTHER', async () => {
+      const gender = (value: unknown) => detailsOf(body({ gender: value }));
+      expect(await gender('male')).toEqual([{ field: 'gender', reason: 'NOT_ALLOWED' }]);
+      expect(await gender('Female')).toEqual([{ field: 'gender', reason: 'NOT_ALLOWED' }]);
+      expect(await gender('')).toEqual([{ field: 'gender', reason: 'NOT_ALLOWED' }]);
+      expect(await gender(1)).toEqual([{ field: 'gender', reason: 'WRONG_TYPE' }]);
+      expect(await gender(null)).toEqual([{ field: 'gender', reason: 'WRONG_TYPE' }]);
+    });
+
+    it('registeredAddress', async () => {
+      const address = (value: unknown) => detailsOf(body({ registeredAddress: value }));
+      expect(await address('Flat 4 <b>')).toEqual([{ field: 'registeredAddress', reason: 'INVALID_FORMAT' }]);
+      expect(await address("St. Mary's Road")).toEqual([{ field: 'registeredAddress', reason: 'INVALID_FORMAT' }]);
+      expect(await address('a'.repeat(151))).toEqual([{ field: 'registeredAddress', reason: 'TOO_LONG' }]);
+      expect(await address(5)).toEqual([{ field: 'registeredAddress', reason: 'WRONG_TYPE' }]);
     });
 
     it('fullName', async () => {
       const name = (fullName: unknown) => detailsOf(body({ fullName }));
       expect(await name('A')).toEqual([{ field: 'fullName', reason: 'TOO_SHORT' }]);
-      expect(await name('A'.repeat(101))).toEqual([{ field: 'fullName', reason: 'TOO_LONG' }]);
+      expect(await name('A'.repeat(51))).toEqual([{ field: 'fullName', reason: 'TOO_LONG' }]);
+      expect(await name('A.')).toEqual([{ field: 'fullName', reason: 'TOO_SHORT' }]);
+      expect(await name('')).toEqual([{ field: 'fullName', reason: 'REQUIRED' }]);
+      expect(await name('   ')).toEqual([{ field: 'fullName', reason: 'REQUIRED' }]);
+    });
+
+    // Split in two so one test stays under the 10-per-hour IP limit.
+    it('fullName characters', async () => {
+      const name = (fullName: unknown) => detailsOf(body({ fullName }));
       expect(await name('Anita1')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
-      expect(await name(' Anita')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
-      expect(await name('Anita  Kumari')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
+      expect(await name('Anita😀')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
+      expect(await name('Anita <b>')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
+      expect(await name('Anita@x.com')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
+      expect(await name('https://x.com')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
+      expect(await name('Anita\nKumari')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
+      expect(await name('Anita\u200bKumari')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
       expect(await name('Mary--Jane')).toEqual([{ field: 'fullName', reason: 'INVALID_FORMAT' }]);
       expect(await name(7)).toEqual([{ field: 'fullName', reason: 'WRONG_TYPE' }]);
     });
 
     it('email', async () => {
       const email = (value: unknown) => detailsOf(body({ email: value }));
-      expect(await email('Anita@example.com')).toEqual([{ field: 'email', reason: 'INVALID_FORMAT' }]);
       expect(await email('anita @example.com')).toEqual([{ field: 'email', reason: 'INVALID_FORMAT' }]);
       expect(await email('anita@example')).toEqual([{ field: 'email', reason: 'INVALID_FORMAT' }]);
       expect(await email('a'.repeat(250) + '@b.co')).toEqual([{ field: 'email', reason: 'TOO_LONG' }]);
@@ -381,13 +518,13 @@ describe('POST /v1/rider/auth/register (complete profile)', () => {
     });
 
     it('city and state', async () => {
-      expect(await detailsOf(body({ registeredCity: '' }))).toEqual([{ field: 'registeredCity', reason: 'TOO_SHORT' }]);
       expect(await detailsOf(body({ registeredState: 5 }))).toEqual([{ field: 'registeredState', reason: 'WRONG_TYPE' }]);
-      expect(await detailsOf(body({ registeredCity: 'a'.repeat(101) }))).toEqual([{ field: 'registeredCity', reason: 'TOO_LONG' }]);
+      expect(await detailsOf(body({ registeredCity: 'a'.repeat(61) }))).toEqual([{ field: 'registeredCity', reason: 'TOO_LONG' }]);
+      expect(await detailsOf(body({ registeredState: 'a'.repeat(61) }))).toEqual([{ field: 'registeredState', reason: 'TOO_LONG' }]);
     });
 
     it('unknown fields, including the old registrationToken and device, are rejected', async () => {
-      const unknown = ['registrationToken', 'device', 'phoneNumber', 'otp', 'status', 'role', 'isProfileComplete', 'isPhoneVerified', 'id'];
+      const unknown = ['registrationToken', 'device', 'phoneNumber', 'otp', 'status', 'role', 'isProfileComplete', 'isPhoneVerified', 'id', 'termsAccepted', 'termsAcceptedAt', 'termsVersion', 'lastLoginAt', 'platform', 'appVersion', 'fcmToken', 'referralCode'];
       const sent = Object.fromEntries(unknown.map((name) => [name, 'x']));
       expect(await detailsOf(body(sent))).toEqual([...unknown].sort().map((field) => ({ field, reason: 'UNKNOWN_FIELD' })));
     });

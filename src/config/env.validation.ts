@@ -8,6 +8,7 @@ export const OTP_PROVIDERS = ['twofactor', 'fake'] as const;
 export type OtpProviderName = (typeof OTP_PROVIDERS)[number];
 export const DEFAULT_TRUST_PROXY_HOPS = 0;
 export const MAX_TRUST_PROXY_HOPS = 10;
+export const DEFAULT_TERMS_VERSION = '2026-10-v1';
 
 export interface ValidatedEnv {
   DATABASE_URL: string;
@@ -19,6 +20,7 @@ export interface ValidatedEnv {
   TWOFACTOR_API_KEY?: string; // only when OTP_PROVIDER is twofactor
   TWOFACTOR_TEMPLATE?: string; // only when OTP_PROVIDER is twofactor; optional, default OTP1
   TRUST_PROXY_HOPS: number;
+  TERMS_VERSION: string; // the terms the phone screen points to; stored with the rider's acceptance time
 }
 
 export interface EnvProblem {
@@ -128,6 +130,12 @@ function checkTrustProxyHops(raw: unknown): { hops?: number; reason?: ReasonCode
   return hops <= MAX_TRUST_PROXY_HOPS ? { hops } : { reason: 'OUT_OF_RANGE' };
 }
 
+// Optional. A short label such as 2026-10-v1: letters, digits, dot, underscore, hyphen; 1 to 32 characters.
+function checkTermsVersion(raw: unknown): { version?: string; reason?: ReasonCode } {
+  if (raw === undefined) return { version: DEFAULT_TERMS_VERSION };
+  return typeof raw === 'string' && /^[A-Za-z0-9._-]{1,32}$/.test(raw) ? { version: raw } : { reason: 'INVALID_FORMAT' };
+}
+
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> & ValidatedEnv {
@@ -158,6 +166,8 @@ export function validateEnv(
 
   const hops = checkTrustProxyHops(config.TRUST_PROXY_HOPS);
   if (hops.reason) problems.push({ variable: 'TRUST_PROXY_HOPS', reason: hops.reason });
+  const terms = checkTermsVersion(config.TERMS_VERSION);
+  if (terms.reason) problems.push({ variable: 'TERMS_VERSION', reason: terms.reason });
   if (problems.length > 0) throw new EnvConfigError(problems);
 
   return {
@@ -167,5 +177,6 @@ export function validateEnv(
     NODE_ENV: config.NODE_ENV as NodeEnv,
     OTP_PROVIDER: config.OTP_PROVIDER as OtpProviderName,
     TRUST_PROXY_HOPS: hops.hops as number,
+    TERMS_VERSION: terms.version as string,
   };
 }

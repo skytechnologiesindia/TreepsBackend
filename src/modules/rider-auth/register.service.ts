@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { RiderStatus } from '@prisma/client';
 import { CLOCK, type Clock } from '../../common/clock.js';
 import { violatedUniqueIndex } from '../../common/database/unique-violation.js';
 import { AppException } from '../../common/errors/app.exception.js';
+import type { ValidatedEnv } from '../../config/env.validation.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { RegisterDto } from './dto/register.dto.js';
 import { riderView, type RiderView } from './rider-view.js';
@@ -11,18 +13,12 @@ export interface CompleteProfileResult {
   rider: RiderView;
 }
 
-// A city or state is stored trimmed, or null when nothing is left (the one explicit normalization
-// in rider-register.md).
-const trimmedOrNull = (value: string | null | undefined): string | null => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-};
-
 @Injectable()
 export class RegisterService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly config: ConfigService<ValidatedEnv, true>,
   ) {}
 
   // docs/api/rider-register.md, "Order of operations" (steps 4 to 6; the guards and validation already
@@ -34,37 +30,55 @@ export class RegisterService {
     const current = await this.prisma.rider.findUnique({ where: { id: riderId } });
     if (!current) throw new AppException('UNAUTHORIZED');
 
+    // Completing the profile (PROFILE_PENDING -> ACTIVE) needs the name and the gender. The DTO cannot
+    // know the state, so it is checked here, with the same INVALID_INPUT shape the validation pipe
+    // gives (field name and reason only). An ACTIVE rider calling again may send any subset.
+    const completing = current.status === RiderStatus.PROFILE_PENDING;
+    if (completing) {
+      const missing = (['fullName', 'gender'] as const).filter((field) => dto[field] === undefined);
+      if (missing.length > 0) {
+        throw new AppException('INVALID_INPUT', { field: missing[0], details: missing.map((field) => ({ field, reason: 'REQUIRED' })) });
+      }
+    }
+
     // 5. Pre-check, so a fixable mistake gets a clear answer before the write. The rider's own email
-    // is not a clash (a second call may send the same one again). The match is exact: the API only
-    // accepts lowercase emails, so A@x.com never gets this far (docs: rider-register.md, email rule).
+    // is not a clash (a second call may send the same one again). The match is exact: the DTO has
+    // already lowercased the address, so A@x.com is looked up as a@x.com.
     const emailChanged = dto.email !== undefined && dto.email !== current.email;
     if (emailChanged) {
       const holder = await this.prisma.rider.findUnique({ where: { email: dto.email } });
       if (holder && holder.id !== riderId) throw new AppException('EMAIL_IN_USE', { field: 'email' });
     }
 
-    const city = trimmedOrNull(dto.registeredCity);
-    const state = trimmedOrNull(dto.registeredState);
+    // Every optional field: sent means saved, omitted (or blank, or null) keeps the stored value.
+    // Clearing a field is not supported yet.
+    const values = {
+      ...(dto.fullName !== undefined ? { fullName: dto.fullName } : {}),
+      ...(dto.gender !== undefined ? { gender: dto.gender } : {}),
+      ...(emailChanged ? { email: dto.email, isEmailVerified: false } : {}),
+      ...(dto.registeredCity ? { registeredCity: dto.registeredCity } : {}),
+      ...(dto.registeredState ? { registeredState: dto.registeredState } : {}),
+      ...(dto.registeredAddress !== undefined ? { registeredAddress: dto.registeredAddress } : {}),
+      status: RiderStatus.ACTIVE,
+      isProfileComplete: true,
+      updatedAt: now,
+    };
 
-    // 6. One conditional update. PROFILE_PENDING becomes ACTIVE; an ACTIVE rider calling again just
-    // saves the new values. A banned or deleted rider matches no row. An omitted email stays as it
-    // was; a different one is unproven again, so isEmailVerified goes back to false.
+    // 6. Conditional updates (the where clause is the guard). The first one matches only a
+    // PROFILE_PENDING rider and also stamps the terms proof, once: termsAcceptedAt and termsVersion
+    // are never part of the second one, so they are never overwritten, and an already ACTIVE rider
+    // (including every rider who completed the profile before these columns existed) keeps them as
+    // they are. The second matches an ACTIVE rider calling again. A banned or deleted rider matches
+    // neither.
     let updated;
     try {
       updated = await this.prisma.rider.updateMany({
-        where: { id: riderId, status: { in: [RiderStatus.PROFILE_PENDING, RiderStatus.ACTIVE] } },
-        data: {
-          fullName: dto.fullName,
-          ...(emailChanged ? { email: dto.email, isEmailVerified: false } : {}),
-          // Like email: sent means saved, omitted keeps the stored value. A null or blank value is
-          // treated as not sent (clearing a field is not supported yet).
-          ...(city !== null ? { registeredCity: city } : {}),
-          ...(state !== null ? { registeredState: state } : {}),
-          status: RiderStatus.ACTIVE,
-          isProfileComplete: true,
-          updatedAt: now,
-        },
+        where: { id: riderId, status: RiderStatus.PROFILE_PENDING },
+        data: { ...values, termsAcceptedAt: now, termsVersion: this.config.get('TERMS_VERSION', { infer: true }) },
       });
+      if (updated.count === 0) {
+        updated = await this.prisma.rider.updateMany({ where: { id: riderId, status: RiderStatus.ACTIVE }, data: values });
+      }
     } catch (error) {
       // Another rider took the email after the pre-check (the unique index decides the race).
       if (violatedUniqueIndex(error) === 'email') throw new AppException('EMAIL_IN_USE', { field: 'email' });

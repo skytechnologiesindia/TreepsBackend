@@ -289,3 +289,49 @@ describe('one active session per driver (decision 174)', () => {
     expect(ctx.db.tables.refreshToken).toHaveLength(2);
   });
 });
+
+describe('DriverVerifyOtpService: device row (platform, appVersion, fcmToken)', () => {
+  const login = async (ctx: ReturnType<typeof setup>, device: Partial<VerifyOtpDto['device']> = {}) => {
+    ctx.session('DRIVER_AUTH', { createdAt: new Date(T0 - 30 * SECOND + ctx.db.tables.otpSession.length) });
+    return ctx.driver.verifyOtp(dto({}, device));
+  };
+
+  it('a first login stores platform, appVersion and fcmToken on the driver device row', async () => {
+    const ctx = setup();
+    await login(ctx, { platform: 'IOS', appVersion: '2.0.0-beta.1', fcmToken: 'tok-1' });
+    expect(ctx.db.tables.driverDevice).toHaveLength(1);
+    expect(ctx.db.tables.driverDevice[0]).toMatchObject({ deviceId: 'device-1', platform: 'IOS', appVersion: '2.0.0-beta.1', fcmToken: 'tok-1' });
+  });
+
+  it('each later login refreshes the same row; a missing or null fcmToken never wipes the stored one; a new one replaces it', async () => {
+    const ctx = setup();
+    await login(ctx, { fcmToken: 'tok-1' });
+    await login(ctx, { platform: 'IOS', appVersion: '1.5.0' });
+    expect(ctx.db.tables.driverDevice).toHaveLength(1);
+    expect(ctx.db.tables.driverDevice[0]).toMatchObject({ platform: 'IOS', appVersion: '1.5.0', fcmToken: 'tok-1' });
+    await login(ctx, { fcmToken: null });
+    expect(ctx.db.tables.driverDevice[0].fcmToken).toBe('tok-1');
+    await login(ctx, { fcmToken: 'tok-2' });
+    expect(ctx.db.tables.driverDevice).toHaveLength(1);
+    expect(ctx.db.tables.driverDevice[0].fcmToken).toBe('tok-2');
+  });
+
+  it('a new driver without an fcmToken has null', async () => {
+    const ctx = setup();
+    await login(ctx);
+    expect(ctx.db.tables.driverDevice[0].fcmToken).toBeNull();
+  });
+
+  it('the reply has no device field and never the fcmToken', async () => {
+    const ctx = setup();
+    const result = await login(ctx, { fcmToken: 'SECRET-TOKEN-123' });
+    const text = JSON.stringify(result.driver);
+    for (const forbidden of ['SECRET-TOKEN-123', 'fcmToken', 'appVersion', 'platform']) expect(text).not.toContain(forbidden);
+  });
+
+  it('lastLoginAt is set on every successful login', async () => {
+    const ctx = setup();
+    await login(ctx);
+    expect(ctx.db.tables.driver[0].lastLoginAt.getTime()).toBe(T0);
+  });
+});

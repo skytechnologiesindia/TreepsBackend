@@ -84,6 +84,10 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
       email: null,
       registeredCity: 'Ranchi',
       registeredState: 'Jharkhand',
+      registeredAddress: null,
+      gender: null,
+      termsAcceptedAt: null,
+      termsVersion: null,
       status: 'ACTIVE',
       isPhoneVerified: true,
       isEmailVerified: false,
@@ -171,6 +175,25 @@ describe('VerifyOtpService: login (an ACTIVE rider)', () => {
       await login(ctx, { fcmToken: 'token-two' });
       expect(ctx.db.tables.device[0].fcmToken).toBe('token-two');
       expect(ctx.db.tables.device[0].lastSeenAt.getTime()).toBe(ctx.now());
+    });
+
+    it('refreshes platform on the same row, and a null fcmToken does not wipe the stored one', async () => {
+      const ctx = setup();
+      ctx.db.addRider();
+      await login(ctx, { fcmToken: 'token-one' });
+      await login(ctx, { platform: 'IOS', fcmToken: null });
+      expect(ctx.db.tables.device).toHaveLength(1);
+      expect(ctx.db.tables.device[0]).toMatchObject({ platform: 'IOS', fcmToken: 'token-one' });
+    });
+
+    it('lastLoginAt moves forward on every successful login', async () => {
+      const ctx = setup();
+      const rider = ctx.db.addRider();
+      await login(ctx);
+      expect(rider.lastLoginAt.getTime()).toBe(ctx.now());
+      ctx.advance(2 * MINUTE);
+      await login(ctx);
+      expect(rider.lastLoginAt.getTime()).toBe(ctx.now());
     });
   });
 

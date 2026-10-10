@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
@@ -122,6 +123,42 @@ describe('POST /v1/driver/auth/verify-otp', () => {
     expect(ctx.db.tables.driver).toHaveLength(0);
   });
 
+  it('an empty-string fcmToken counts as not sent: login works and the stored token is kept', async () => {
+    ctx.db.addDriver();
+    ctx.session();
+    const device = { deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2' };
+    const { res } = await driverVerify(ctx.app, body({ device: { ...device, fcmToken: '' } }));
+    expect(res.status).toBe(200);
+    expect(ctx.db.tables.driverDevice[0].fcmToken).toBeNull(); // first login, nothing stored yet
+    ctx.db.tables.driverDevice[0].fcmToken = 'tok-1';
+    ctx.db.addSession({ phoneNumber: PHONE, purpose: 'DRIVER_AUTH', providerSessionId: 'fake-session-1', createdAt: new Date(T0 - 30_000), expiresAt: new Date(T0 + 4 * MINUTE) });
+    expect((await driverVerify(ctx.app, body({ device: { ...device, fcmToken: '' } }))).res.status).toBe(200);
+    expect(ctx.db.tables.driverDevice[0].fcmToken).toBe('tok-1');
+  });
+
+  it('the fcmToken is stored on the driver device row, never returned and never logged', async () => {
+    const lines: string[] = [];
+    const spies = (['log', 'warn', 'error', 'debug', 'verbose', 'fatal'] as const).map((level) =>
+      vi.spyOn(Logger.prototype, level).mockImplementation((...args: unknown[]) => void lines.push(JSON.stringify(args))),
+    );
+    try {
+      ctx.session();
+      const device = { deviceId: 'device-1', platform: 'IOS', appVersion: '3.1.0+12', fcmToken: 'SECRET-TOKEN-123' };
+      const { res, body: reply } = await driverVerify(ctx.app, body({ device }));
+      expect(res.status).toBe(200);
+      const text = JSON.stringify(reply);
+      for (const forbidden of ['SECRET-TOKEN-123', 'fcmToken', 'appVersion', 'platform', '"platform"']) expect(text).not.toContain(forbidden);
+      expect(ctx.db.tables.driverDevice[0]).toMatchObject({ platform: 'IOS', appVersion: '3.1.0+12', fcmToken: 'SECRET-TOKEN-123' });
+      ctx.db.failOn = 'driverDevice.upsert';
+      // A newer code, so the used one is not picked again.
+      ctx.db.addSession({ phoneNumber: PHONE, purpose: 'DRIVER_AUTH', providerSessionId: 'fake-session-1', createdAt: new Date(T0 - 30_000), expiresAt: new Date(T0 + 4 * MINUTE) });
+      expect((await driverVerify(ctx.app, body({ device }))).res.status).toBe(500);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(lines.join('\n')).not.toContain('SECRET');
+  });
+
   it('invalid input is 400 INVALID_INPUT with the same field names as the rider route, and nothing happens', async () => {
     const session = ctx.session();
     const detailsOf = async (payload: unknown) => (await driverVerify(ctx.app, payload)).body.error.details;
@@ -133,6 +170,17 @@ describe('POST /v1/driver/auth/verify-otp', () => {
     expect(await detailsOf(body({ phoneNumber: '9477172214' }))).toEqual([{ field: 'phoneNumber', reason: 'INVALID_FORMAT' }]);
     expect(await detailsOf(body({ otp: 123456 }))).toEqual([{ field: 'otp', reason: 'WRONG_TYPE' }]);
     expect(await detailsOf(body({ device: { deviceId: 'device-1', platform: 'WINDOWS', appVersion: '1.4.2' } }))).toEqual([{ field: 'device.platform', reason: 'NOT_ALLOWED' }]);
+    const device = { deviceId: 'device-1', platform: 'ANDROID', appVersion: '1.4.2' };
+    const { platform: _platform, ...withoutPlatform } = device;
+    const { appVersion: _version, ...withoutVersion } = device;
+    expect(await detailsOf(body({ device: withoutPlatform }))).toEqual([{ field: 'device.platform', reason: 'REQUIRED' }]);
+    expect(await detailsOf(body({ device: { ...device, platform: 'ios' } }))).toEqual([{ field: 'device.platform', reason: 'NOT_ALLOWED' }]);
+    expect(await detailsOf(body({ device: withoutVersion }))).toEqual([{ field: 'device.appVersion', reason: 'REQUIRED' }]);
+    expect(await detailsOf(body({ device: { ...device, appVersion: 'a'.repeat(21) } }))).toEqual([{ field: 'device.appVersion', reason: 'TOO_LONG' }]);
+    expect(await detailsOf(body({ device: { ...device, appVersion: '1.4 2' } }))).toEqual([{ field: 'device.appVersion', reason: 'INVALID_FORMAT' }]);
+    expect(await detailsOf(body({ device: { ...device, fcmToken: 'has space' } }))).toEqual([{ field: 'device.fcmToken', reason: 'INVALID_FORMAT' }]);
+    expect(await detailsOf(body({ device: { ...device, fcmToken: 'x'.repeat(513) } }))).toEqual([{ field: 'device.fcmToken', reason: 'TOO_LONG' }]);
+    expect(await detailsOf(body({ device: { ...device, devicePlatform: 'ANDROID' } }))).toEqual([{ field: 'device.devicePlatform', reason: 'UNKNOWN_FIELD' }]);
     expect(await detailsOf(body({ status: 'APPROVED', role: 'RIDER', purpose: 'RIDER_AUTH' }))).toEqual([
       { field: 'purpose', reason: 'UNKNOWN_FIELD' },
       { field: 'role', reason: 'UNKNOWN_FIELD' },

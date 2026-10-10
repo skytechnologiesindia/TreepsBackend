@@ -90,7 +90,7 @@ describe('AppController (e2e)', () => {
   it('POST /v1/rider/auth/verify-otp is served by the real app: a bad body is INVALID_INPUT with dot-path fields, no database needed', async () => {
     const response = await request(app.getHttpServer())
       .post('/v1/rider/auth/verify-otp')
-      .send({ phoneNumber: '9477172214', otp: '12345', device: { deviceId: 'd 1', platform: 'WINDOWS', appVersion: '1.4' } });
+      .send({ phoneNumber: '9477172214', otp: '12345', device: { deviceId: 'd 1', platform: 'WINDOWS', appVersion: '1.4 x' } });
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('INVALID_INPUT');
     expect(response.body.error.details).toEqual([
