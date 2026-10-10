@@ -46,3 +46,4 @@ Built in `register.http.spec.ts` (logout group), `driver-session.http.spec.ts` a
 |---|---|---|
 | 2026-10-05 | Draft APPROVED (refresh-token logout, public, always 200) | Rider auth docs-first |
 | 2026-10-09 | **Redesigned and built:** guarded by the session token, no body, 401 for an unknown token, deletes the device session | Server-side sessions (decisions 174 to 178) |
+| 2026-10-10 | Logout also deletes this device's `Device` row (session and device row in one transaction), so the device's `fcmToken` dies with the session; the reply is unchanged | Owner instruction of 2026-10-10 (decision 179) |

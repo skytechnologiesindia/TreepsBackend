@@ -46,3 +46,4 @@ Built in `driver-session.http.spec.ts` and e2e cases 27 to 29 and 33: 200 `{ log
 |---|---|---|
 | 2026-10-09 | Built as a public refresh-token logout (always 200) | M6 driver (decisions 170 to 173) |
 | 2026-10-09 | **Redesigned:** guarded by the session token, no body, 401 for an unknown token | Server-side sessions (decisions 174 to 178) |
+| 2026-10-10 | Logout also deletes this device's `DriverDevice` row (session and device row in one transaction), so the device's `fcmToken` dies with the session; the reply is unchanged | Owner instruction of 2026-10-10 (decision 179) |

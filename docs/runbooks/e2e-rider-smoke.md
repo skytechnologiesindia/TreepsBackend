@@ -6,7 +6,7 @@ One command: `npm run e2e:rider`. It is not part of `npm test` or `npm run test:
 1. Creates the scratch database `treeps_scratch_e2e` on the server named in `DATABASE_URL` (only host, port, user and password are used; the database name is a constant in the spec, never `treeps_db`). An old copy is dropped first.
 2. Applies the real migrations with `prisma migrate deploy`.
 3. Boots the real `AppModule` with the production wiring (`setupApp`, `assertRouteInputs`) on a random port with `OTP_PROVIDER=fake`, `ALLOW_FAKE_OTP=true`, `FAKE_OTP_CODE=424242` and no token secret (sessions need none). The scratch `DATABASE_URL` is set in the process, so `.env` cannot override it.
-4. Runs 35 cases (1 to 25 rider and driver login, validation, conflicts, bans and limits; 26 to 34 sessions: sliding expiry, ban, logout, one active driver session, rider per device, hashed storage; 35 the envelope) over real `fetch`, prints a table (case, expected, actual, PASS/FAIL), then drops the scratch database and checks it is gone. The run fails if any case fails.
+4. Runs 44 cases (1 to 25 rider and driver login, validation, conflicts, bans and limits; 26 to 34 sessions: sliding expiry, ban, logout, one active driver session, rider per device, hashed storage; 36 to 44 profile fields, terms proof, device row and logout cleanup; 45 the envelope; there is no case 35) over real `fetch`, prints a table (case, expected, actual, PASS/FAIL), then drops the scratch database and checks it is gone. The run fails if any case fails.
 
 ## Notes
 - A fresh app is started for each case group, so the in-memory IP rate counters start empty (the register limit is 10 an hour per IP).
@@ -19,3 +19,6 @@ One command: `npm run e2e:rider`. It is not part of `npm test` or `npm run test:
 
 ## Session cases (26 to 34, 2026-10-09)
 Real-Postgres cases for the server-side sessions (decisions 174 to 178). They move rows in time with `UPDATE` on the scratch database where a case needs an expired session (12) or a session last used two hours ago (26), instead of sleeping.
+
+## Profile and device cases (36 to 44, 2026-10-10)
+Real-Postgres cases for decisions 179 to 182: the device row is stored and refreshed on every login (`platform`, `appVersion`, `fcmToken`), a missing or empty `fcmToken` keeps the stored one, `register` stores `gender`, `registeredAddress`, Title Case city and state and sets the terms proof once, an already ACTIVE rider with NULL new columns can register without `gender`, mass assignment is `UNKNOWN_FIELD`, `lastLoginAt` moves on every verify-otp, bad device bodies are `400`, and logout deletes the `Device` / `DriverDevice` row. A phone allows 5 sends per hour, so each case that needs several logins uses a fresh rider. Case 29 now also checks that logout removes the device row. The run is 44 cases (the number 35 was retired when the envelope check became case 45).

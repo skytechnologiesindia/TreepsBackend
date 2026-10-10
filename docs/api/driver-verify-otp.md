@@ -25,11 +25,31 @@ Body, JSON: **identical to `rider-verify-otp.md`** (same DTO class, `src/modules
 | otp | string | digits as text | Required | Exactly 6 digits (`OtpCode`) | Proves the driver holds the phone | Text, so a leading zero survives | Input | A real driver fails |
 | device | object | n/a | Required | Fields below; no unknown fields at any depth | Binds the tokens to one device | Nested object | Input | Tokens cannot be bound to a device |
 | device.deviceId | string | text | Required | 1 to 64 characters, only `A-Z a-z 0-9 _ -` | App-generated install id; one active session per driver | Text | Identity | Two devices share one session |
-| device.platform | string | enum | Required | `ANDROID`, `IOS` | Admin and push routing | Enum, uppercase | Input | Wrong push channel |
-| device.appVersion | string | text | Required | three dot-separated numbers like `1.4.2`, 1 to 3 digits each | Support and force-update | Text | Input | Cannot tell which build has a bug |
-| device.fcmToken | string | text | Optional | 1 to 512 characters; never logged | Push notifications | Text | Input | No push messages |
+| device.platform | string | enum | Required | Exactly `ANDROID` or `IOS` (uppercase). The field name is `platform` (an earlier draft renamed it to `devicePlatform`; that was reverted, decision 181) | Admin and push routing; shown to support | Enum, uppercase | Input | Wrong push channel |
+| device.appVersion | string | text | Required | 1 to 20 characters from `A-Z a-z 0-9 . + _ -` (pattern `^[0-9A-Za-z.+_-]{1,20}$`), so `1.4.2`, `1.4.2+37` and `2.0.0-beta.1` all pass. Not trimmed; `""` is `TOO_SHORT`, 21 characters is `TOO_LONG`, any other character is `INVALID_FORMAT` (decision 181, replaces decision 143) | Support and force-update | Text | Input | Cannot tell which build has a bug |
+| device.fcmToken | string | text | Optional (omitted, `null` and `""` all mean "not sent") | At most 512 characters, no whitespace of any kind and no NUL. A token with a space or over 512 characters is `INVALID_FORMAT` / `TOO_LONG`. **The value is sensitive: never logged, never returned in any reply, never put in an error detail** (details carry the field name only) | Push notifications | Text | Input | No push messages |
 
 The OTP purpose is never a request field. This route reads only sessions with purpose `DRIVER_AUTH`.
+
+**The exact body (breaking change for the apps, 2026-10-10: `appVersion` rule loosened, `fcmToken` may be null or empty, `platform` stays `platform`):**
+
+```json
+{
+  "phoneNumber": "+919477172214",
+  "otp": "123456",
+  "device": {
+    "deviceId": "a1b2c3d4-install-id",
+    "platform": "ANDROID",
+    "appVersion": "1.4.2+37",
+    "fcmToken": "optional push token, omit it or send null when the user denied notifications"
+  }
+}
+```
+
+`device.platform` and `device.appVersion` are required on every call. `device.fcmToken` is the only optional device field.
+
+**What is stored from `device` (rider and driver the same, decision 181):** one row per install, on the table that already held `deviceId` (`Device` for riders, `DriverDevice` for drivers): `deviceId`, `platform`, `appVersion`, `fcmToken` (nullable) and `lastSeenAt`. **Every successful verify-otp refreshes that row** (an upsert on `(accountId, deviceId)`, so there is never a duplicate): `platform`, `appVersion` and `lastSeenAt` are always overwritten; `fcmToken` is overwritten only when a non-empty token is sent, so a login without a token (omitted, `null` or `""`) never wipes a stored one. Nothing from `device` is validated and then thrown away. The device fields are **not** on the Rider or Driver table and are **never returned** in a reply. **Logout deletes the device row together with the session (decision 179), so the push token dies with the session.** Known limit: a session that expires or is deleted by a ban leaves its device row (and token) until the next login of that device; cleanup is TO DECIDE.
+
 
 ## Response fields
 Success: HTTP 200 in both cases (TO DECIDE: a new driver is created, so 201 would also fit; 200 is used because the rider route does the same and a controller cannot choose the status per case without raw response access, which rule 13 bans). The app switches on `isNewDriver`. `data` is:
@@ -59,7 +79,7 @@ Never in the reply: `isPhoneVerified`, `lastLoginAt`, `deletedAt`, the token has
 5. **Otherwise (no driver, or any other status):** one database transaction:
    - a conditional update marks the code used and finished (`verifiedAt` null becomes now, `consumedAt` now). If it changes no row, another request used the code first: `OTP_INVALID`, nothing else is written. This is the **single-use** step and it runs first, so a parallel request waits on the row, then matches nothing;
    - **new phone:** create the Driver (`DOCUMENTS_PENDING`, `isPhoneVerified` true, `lastLoginAt` now). **Existing driver:** set `lastLoginAt`;
-   - upsert the DriverDevice (create it, or update `platform`, `appVersion`, `lastSeenAt`, and `fcmToken` if sent);
+   - upsert the DriverDevice (create it, or update `platform`, `appVersion` and `lastSeenAt`, and `fcmToken` only when a non-empty one is sent);
    - create the session through `SessionService` (a `DriverRefreshToken` row, SHA-256 hash only), replacing this device's earlier one;
    - delete every other session of this driver and every other `DriverDevice` row (**one active session**, decision 174).
    A unique violation on the phone (another session created the Driver first) becomes `CONFLICT`; the whole transaction rolls back, so the code is not used.
@@ -151,3 +171,4 @@ A barrier holds both requests until each has passed the code check and the drive
 | 2026-10-07 | Draft created and built: driver verify-otp, `Driver`, `DriverDevice`, `DriverRefreshToken`, role `DRIVER`, one transaction for create and login, shared code check | Owner instruction of 2026-10-07 (decisions 152 to 159) |
 | 2026-10-09 | One active device: verify-otp deletes the driver's other devices and their refresh tokens in the same transaction | M6 driver (decision 170) |
 | 2026-10-09 | **Server-side sessions:** `tokens` is now `{ accessToken, expiresInSeconds }` (opaque session token, 30 days sliding); one active session per driver; no JWT, no refresh token | Decisions 174 to 178 |
+| 2026-10-10 | **Device object changed (breaking for the apps), same as `rider-verify-otp.md`:** `appVersion` is `^[0-9A-Za-z.+_-]{1,20}$`; `fcmToken` omitted, `null` or `""` means not sent and never wipes a stored token; `platform` keeps its name; logout deletes the `DriverDevice` row so the push token dies with the session | Owner instruction of 2026-10-10 (decisions 179 to 182) |

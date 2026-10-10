@@ -19,13 +19,33 @@ Body, JSON. Nothing else is accepted; unknown fields (including `status`, `role`
 | otp | string | digits as text | Required | Exactly 6 characters, digits 0 to 9 only | Proves the rider holds the phone | Text, not a number: a leading zero must survive (`012345`) | Input | A number type would drop the leading zero and fail a real rider |
 | device | object | n/a | Required | Fields below; no unknown fields at any depth | Lets the server bind tokens to one device | Nested object | Input | Tokens cannot be bound to a device |
 | device.deviceId | string | text | Required | 1 to 64 characters, only `A-Z a-z 0-9 _ -` (decision 132) | App-generated install id; one session per device | Text | Identity | Two devices share one session |
-| device.platform | string | enum | Required | `ANDROID`, `IOS` | Admin and push routing | Enum, uppercase | Input | Wrong push channel |
-| device.appVersion | string | text | Required | three dot-separated numbers like `1.4.2`, 1 to 3 digits each (decision 143) | Support and force-update | Text | Input | Cannot tell which build has a bug |
-| device.fcmToken | string | text | Optional | 1 to 512 characters (decision 132); never logged | Push notifications | Text | Input | No push messages |
+| device.platform | string | enum | Required | Exactly `ANDROID` or `IOS` (uppercase). The field name is `platform` (an earlier draft renamed it to `devicePlatform`; that was reverted, decision 181) | Admin and push routing; shown to support | Enum, uppercase | Input | Wrong push channel |
+| device.appVersion | string | text | Required | 1 to 20 characters from `A-Z a-z 0-9 . + _ -` (pattern `^[0-9A-Za-z.+_-]{1,20}$`), so `1.4.2`, `1.4.2+37` and `2.0.0-beta.1` all pass. Not trimmed; `""` is `TOO_SHORT`, 21 characters is `TOO_LONG`, any other character is `INVALID_FORMAT` (decision 181, replaces decision 143) | Support and force-update | Text | Input | Cannot tell which build has a bug |
+| device.fcmToken | string | text | Optional (omitted, `null` and `""` all mean "not sent") | At most 512 characters, no whitespace of any kind and no NUL. A token with a space or over 512 characters is `INVALID_FORMAT` / `TOO_LONG`. **The value is sensitive: never logged, never returned in any reply, never put in an error detail** (details carry the field name only) | Push notifications | Text | Input | No push messages |
 
-`device.*` uses the dot-path field names of `input-validation.md` section 4. The `device` shape is the same in `register` (brief listed deviceId, platform and appVersion; `fcmToken` stays optional as decided earlier, decision 94).
+`device.*` uses the dot-path field names of `input-validation.md` section 4. The `device` shape is the same in the driver route (`driver-verify-otp.md`; one DTO class).
 
-Shared types (`input-validation.md` section 2b): `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion`, `Text` for `fcmToken`, `OneOf` for `platform`.
+**The exact body (breaking change for the apps, 2026-10-10: `appVersion` rule loosened, `fcmToken` may be null or empty, `platform` stays `platform`):**
+
+```json
+{
+  "phoneNumber": "+919477172214",
+  "otp": "123456",
+  "device": {
+    "deviceId": "a1b2c3d4-install-id",
+    "platform": "ANDROID",
+    "appVersion": "1.4.2+37",
+    "fcmToken": "optional push token, omit it or send null when the user denied notifications"
+  }
+}
+```
+
+`device.platform` and `device.appVersion` are required on every call. `device.fcmToken` is the only optional device field.
+
+**What is stored from `device` (rider and driver the same, decision 181):** one row per install, on the table that already held `deviceId` (`Device` for riders, `DriverDevice` for drivers): `deviceId`, `platform`, `appVersion`, `fcmToken` (nullable) and `lastSeenAt`. **Every successful verify-otp refreshes that row** (an upsert on `(accountId, deviceId)`, so there is never a duplicate): `platform`, `appVersion` and `lastSeenAt` are always overwritten; `fcmToken` is overwritten only when a non-empty token is sent, so a login without a token (omitted, `null` or `""`) never wipes a stored one. Nothing from `device` is validated and then thrown away. The device fields are **not** on the Rider or Driver table and are **never returned** in a reply. **Logout deletes the device row together with the session (decision 179), so the push token dies with the session.** Known limit: a session that expires or is deleted by a ban leaves its device row (and token) until the next login of that device; cleanup is TO DECIDE.
+
+
+Shared types (`input-validation.md` section 2b): `IndianMobile`, `OtpCode`, `DeviceId`, `AppVersion`, `FcmToken`, `OneOf` for `platform`.
 
 ## Response fields
 Success: HTTP 200 in both cases (TO DECIDE: a new rider row is created, so 201 would also fit; 200 is kept because a controller cannot pick the status per case without raw response access, rule 13, and the driver route does the same, decision 156). The app switches on `status` and `isProfileComplete` (or calls `GET /v1/rider/me`, `rider-me.md`); `isNewRider` only says whether this call created the account. **One shape for a new and an existing rider.** `data`:
@@ -33,14 +53,14 @@ Success: HTTP 200 in both cases (TO DECIDE: a new rider row is created, so 201 w
 | Name | Type | Unit | Required? | Allowed range | Why it exists | Why this type/unit | Bucket | What breaks if wrong |
 |---|---|---|---|---|---|---|---|---|
 | isNewRider | boolean | n/a | Always | `true` if this call created the Rider; `false` for an existing rider (also one still `PROFILE_PENDING` from an earlier call) | Lets the app show a welcome | Boolean | Derived | App shows the wrong greeting |
-| rider | object | n/a | Always | Same fields as `rider` in `rider-register.md` Response fields (`fullName` and `email` are null and `status` is `PROFILE_PENDING` until the profile is completed) | App shows the rider and picks its screen | Same object everywhere | Derived | Inconsistent profile |
+| rider | object | n/a | Always | Same fields as `rider` in `rider-register.md` Response fields, including `gender`, `registeredAddress`, `termsAcceptedAt` (+ `termsAcceptedAtIst`) and `termsVersion` (all `null` until the profile is completed; `fullName` and `email` are null and `status` is `PROFILE_PENDING` until then) | App shows the rider and picks its screen | Same object everywhere | Derived | Inconsistent profile |
 | tokens | object | n/a | Always | exactly `{ accessToken, expiresInSeconds }`. `accessToken` is the opaque **session token**: 43 base64url characters (32 random bytes), shown once, only its SHA-256 hash is stored. `expiresInSeconds` is `2592000` (30 days, sliding: extended on use, written at most once an hour) | The credential for later calls (`Authorization: Bearer <accessToken>`) and how long it lasts | Opaque random value, so the server can delete it at once; the name `accessToken` is kept so the apps do not change | Derived | The app cannot call protected routes |
 
 Every date-time in `rider` also has its Indian-time twin (`rider.createdAtIst`, for example `"07-10-2026 19:23:10"`), added by the central serializer step of `response-format.md` section 8; it is additive.
 
 There is **no** `registrationToken`, no `registrationTokenExpiresInSeconds` and no top-level `profileComplete`: the profile flag is `rider.isProfileComplete`.
 
-Never in the reply: the provider session id, `attempts`, any token hash, the rider's `deletedAt` or `lastLoginAt`.
+Never in the reply: the provider session id, `attempts`, any token hash, the rider's `deletedAt` or `lastLoginAt`, or any device field (`platform`, `appVersion`, `fcmToken`).
 
 ## Order of operations
 1. Validate the body.
@@ -56,7 +76,7 @@ Never in the reply: the provider session id, `attempts`, any token hash, the rid
 6. Look up the Rider by phone. Only now, after the caller proved they hold the phone, does the account state matter.
 7. Mark the code used (the **single-use** step: `verifiedAt` null becomes now; if it matches no row, another request used it first: `OTP_INVALID`). What else happens depends on the account:
    - **No rider:** one database transaction (as the driver route, decision 156): the conditional update marks the code used and finished (`verifiedAt` and `consumedAt`); create the Rider (`PROFILE_PENDING`, `isPhoneVerified` true, `isProfileComplete` false, `fullName` and `email` null, `lastLoginAt` now); create the Device; create the first session through `SessionService` (a `RefreshToken` row; SHA-256 hash only). A unique violation on the phone (another session created the Rider first) becomes `CONFLICT`; the whole transaction rolls back, so the code is not used. Reply `isNewRider` true.
-   - **ACTIVE or PROFILE_PENDING:** a separate conditional update marks `verifiedAt` first, then one database transaction: upsert the `Device` (create it, or update `appVersion`, `platform`, `lastSeenAt`, and `fcmToken` if sent); replace this device's session with a new one through `SessionService` (SHA-256 hash only; the rider's other devices keep theirs, decision 177); set `Rider.lastLoginAt`; set the session's `consumedAt`. Reply `isNewRider` false.
+   - **ACTIVE or PROFILE_PENDING:** a separate conditional update marks `verifiedAt` first, then one database transaction: upsert the `Device` (create it, or update `platform`, `appVersion` and `lastSeenAt`, and `fcmToken` only when a non-empty one is sent); replace this device's session with a new one through `SessionService` (SHA-256 hash only; the rider's other devices keep theirs, decision 177); set `Rider.lastLoginAt` to now (**on every successful verify-otp**, new account or login); set the session's `consumedAt`. Reply `isNewRider` false.
    - **SUSPENDED, BLOCKED or DELETED:** set `consumedAt`, reply `ACCOUNT_BANNED`. No tokens. A DELETED row keeps owning its phone (plain unique, decision 128), so the phone cannot register again. Revisit when a delete or restore flow is built.
 
 ## Derived values
@@ -147,3 +167,4 @@ A barrier holds both requests until each has passed the code check and the rider
 | 2026-10-07 | **Redesigned:** a new phone creates a `PROFILE_PENDING` Rider, Device and RefreshToken in one transaction and replies with the same shape as an existing rider (`isNewRider` true, `rider`, real tokens); `registrationToken` removed; `CONFLICT` added; `PROFILE_PENDING` riders can log in. Built 2026-10-08 (migration `20261007160000_rider_profile_pending`) | Owner instruction of 2026-10-07 (decision 162) |
 | 2026-10-07 | Steps 2 to 5 and the single-use update moved to the shared `OtpCodeChecker` and `markCodeUsed` (`src/modules/otp/otp-code-checker.ts`); the DTOs moved to `src/modules/otp/dto/`; `AccessTokenService` moved to `src/common/jwt/`. No behavior change; the driver route uses the same code with purpose `DRIVER_AUTH` | Driver verify-otp (decision 155) |
 | 2026-10-09 | **Server-side sessions:** `tokens` is now `{ accessToken, expiresInSeconds }` (opaque session token, 30 days sliding); `refreshToken`, `refreshTokenExpiresInSeconds`, `accessTokenExpiresInSeconds` and the JWT are gone | Decisions 174 to 178 |
+| 2026-10-10 | **Device object changed (breaking for the apps):** `appVersion` is now `^[0-9A-Za-z.+_-]{1,20}$` (was three dotted numbers); `fcmToken` is no longer `TOO_SHORT` for `""`: omitted, `null` and `""` all mean not sent and never wipe a stored token, and a token with whitespace is `INVALID_FORMAT`; the field `platform` keeps its name. `platform`, `appVersion`, `fcmToken` are refreshed on the device row on every login. The `rider` object gains `gender`, `registeredAddress`, `termsAcceptedAt`, `termsVersion`. `lastLoginAt` is set on every success (already true; now tested) | Owner instruction of 2026-10-10 (decisions 179 to 182) |
