@@ -1,0 +1,25 @@
+// The people who use the admin panel (docs/api/admin/admin-login.md). Created only by the one-time
+// script `npm run admin:create`, never through the API. passwordHash is scrypt, never the password.
+model Admin {
+  id           String         @id @default(uuid())
+  email        String         @unique // lower case
+  name         String         @db.VarChar(100)
+  passwordHash String
+  isActive     Boolean        @default(true)
+  lastLoginAt  DateTime?      @db.Timestamptz(3)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+  sessions     AdminSession[]
+}
+
+// Same shape as DriverRefreshToken: only the SHA-256 of the token is stored. One session per admin.
+model AdminSession {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([adminId])
+}

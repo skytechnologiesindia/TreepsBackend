@@ -402,6 +402,50 @@ export function NestedList(dto: () => DtoClass, limits: { min: number; max: numb
   };
 }
 
+const CALENDAR_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
+// A real calendar date written YYYY-MM-DD (a birth date or an expiry date has no time), read as
+// midnight UTC. Years before 1900 are refused. Returns the UTC time in milliseconds.
+export function parseCalendarDate(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const m = CALENDAR_DATE.exec(value);
+  if (!m) return undefined;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (y < 1900) return undefined;
+  const t = Date.UTC(y, mo - 1, d);
+  const back = new Date(t);
+  const real = back.getUTCFullYear() === y && back.getUTCMonth() === mo - 1 && back.getUTCDate() === d;
+  return real ? t : undefined;
+}
+export function CalendarDate(limits: { min: () => Date; max: () => Date }): FieldType {
+  assertLimit(
+    typeof limits?.min === 'function' && typeof limits?.max === 'function',
+    'CalendarDate min/max (both must be functions)',
+  );
+  const earliest = limits.min();
+  const latest = limits.max();
+  assertLimit(
+    earliest instanceof Date &&
+      latest instanceof Date &&
+      !Number.isNaN(earliest.getTime()) &&
+      !Number.isNaN(latest.getTime()) &&
+      earliest.getTime() <= latest.getTime(),
+    'CalendarDate min() and max() must each return a valid Date, min not after max',
+  );
+  return {
+    checks: [
+      check(CHECK_KEYS.wrongType, isString),
+      check(CHECK_KEYS.invalidFormat, (v) => !isString(v) || parseCalendarDate(v) !== undefined),
+      check(CHECK_KEYS.outOfRange, (v) => {
+        const t = parseCalendarDate(v);
+        if (t === undefined) return true; // wrong type or format is reported by the checks above
+        return t >= limits.min().getTime() && t <= limits.max().getTime();
+      }),
+    ],
+  };
+}
+
 const PLAIN_DECIMAL = /^(0|[1-9][0-9]*)$/;
 // Explicit, strict text-to-integer conversion for query and path values (rule 4).
 export function ToInt(): PropertyDecorator {

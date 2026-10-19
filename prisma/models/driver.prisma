@@ -1,6 +1,7 @@
-// Driver identity and login only. Profile, documents, vehicle and recharge come in later steps as
-// nullable columns or separate tables. No live-location or online state lives here. A full Aadhaar
-// number is never stored anywhere.
+// Driver identity, login and the onboarding profile (set by POST /v1/driver/onboarding, all nullable
+// until then). The documents live in DriverDocument. Vehicle and recharge come in later steps. No
+// live-location or online state lives here. The Aadhaar number a driver types is stored in
+// DriverDocument.number (decision 187, which reverses decision 152; legal check: TO DECIDE).
 enum DriverStatus {
   DOCUMENTS_PENDING
   UNDER_REVIEW
@@ -21,7 +22,15 @@ model Driver {
   createdAt       DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @db.Timestamptz(3)
 
-  devices DriverDevice[]
+  // Onboarding profile (the PERSONAL_INFO step). Null until the driver submits.
+  fullName         String?   @db.VarChar(100)
+  dateOfBirth      DateTime? @db.Date
+  gender           Gender?
+  profilePhotoPath String? // The storage path of the profile photo, never a URL
+  submittedAt      DateTime? @db.Timestamptz(3) // When the application was last submitted
+
+  devices   DriverDevice[]
+  documents DriverDocument[]
 }
 
 // One row per driver install. Mirrors Device; separate tables so no foreign key is shared and nullable.

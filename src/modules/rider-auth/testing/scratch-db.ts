@@ -16,7 +16,14 @@ import pg from 'pg';
 export const SCRATCH_DB_NAME = 'treeps_scratch_register';
 export const SCRATCH_DRIVER_DB_NAME = 'treeps_scratch_driver';
 export const SCRATCH_RIDER_VERIFY_DB_NAME = 'treeps_scratch_rider_verify';
-export type ScratchName = typeof SCRATCH_DB_NAME | typeof SCRATCH_DRIVER_DB_NAME | typeof SCRATCH_RIDER_VERIFY_DB_NAME;
+export const SCRATCH_ONBOARDING_DB_NAME = 'treeps_scratch_onboarding';
+export const SCRATCH_ADMIN_DB_NAME = 'treeps_scratch_admin';
+export type ScratchName =
+  | typeof SCRATCH_DB_NAME
+  | typeof SCRATCH_DRIVER_DB_NAME
+  | typeof SCRATCH_RIDER_VERIFY_DB_NAME
+  | typeof SCRATCH_ONBOARDING_DB_NAME
+  | typeof SCRATCH_ADMIN_DB_NAME;
 export const PG_TESTS_ENABLED = process.env.RUN_PG_TESTS === '1';
 
 function urlFor(database: string): string {
