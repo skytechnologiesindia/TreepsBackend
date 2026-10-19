@@ -27,6 +27,9 @@ const FAKE = {
   FAKE_OTP_CODE: '123456',
 };
 
+// Photos go to a bucket in production. Placeholders only.
+const S3 = { STORAGE_DRIVER: 's3', S3_BUCKET: 'treeps-driver-documents', S3_REGION: 'ap-south-1' };
+
 function problemsOf(config: Record<string, unknown>): EnvProblem[] {
   try {
     validateEnv(config);
@@ -156,7 +159,7 @@ describe('validateEnv', () => {
     );
 
     it.each(NODE_ENVS.map((v) => [v]))('accepts %s', (value) => {
-      expect(validateEnv({ ...VALID, NODE_ENV: value }).NODE_ENV).toBe(value);
+      expect(validateEnv({ ...VALID, ...S3, NODE_ENV: value }).NODE_ENV).toBe(value);
     });
   });
 
@@ -174,7 +177,7 @@ describe('validateEnv', () => {
 
     it('accepts twofactor in every NODE_ENV', () => {
       for (const env of NODE_ENVS) {
-        expect(validateEnv({ ...VALID, NODE_ENV: env }).OTP_PROVIDER).toBe('twofactor');
+        expect(validateEnv({ ...VALID, ...S3, NODE_ENV: env }).OTP_PROVIDER).toBe('twofactor');
       }
     });
 
@@ -183,14 +186,14 @@ describe('validateEnv', () => {
     });
 
     it('refuses fake in production, even with ALLOW_FAKE_OTP=true and a valid code', () => {
-      const config = { ...FAKE, NODE_ENV: 'production' };
+      const config = { ...FAKE, ...S3, NODE_ENV: 'production' };
       expect(config.ALLOW_FAKE_OTP).toBe('true');
       expect(problemsOf(config)).toEqual([{ variable: 'OTP_PROVIDER', reason: 'NOT_ALLOWED' }]);
       expect(() => validateEnv(config)).toThrow(/OTP_PROVIDER \(NOT_ALLOWED\)/);
     });
 
     it('twofactor is allowed in production', () => {
-      expect(problemsOf({ ...VALID, NODE_ENV: 'production' })).toEqual([]);
+      expect(problemsOf({ ...VALID, NODE_ENV: 'production', ...S3 })).toEqual([]);
     });
   });
 
@@ -263,6 +266,63 @@ describe('validateEnv', () => {
 
     it('is not read for fake', () => {
       expect(problemsOf({ ...FAKE, TWOFACTOR_TEMPLATE: 'a/b' })).toEqual([]);
+    });
+  });
+
+  describe('STORAGE_DRIVER, S3_BUCKET, S3_REGION and S3_ENDPOINT', () => {
+    it('defaults to the local folder outside production', () => {
+      expect(validateEnv(VALID).STORAGE_DRIVER).toBe('local');
+      expect(validateEnv({ ...VALID, STORAGE_DRIVER: 'local' }).STORAGE_DRIVER).toBe('local');
+    });
+
+    it('production must say s3: missing is REQUIRED and local is NOT_ALLOWED', () => {
+      expect(reasonsFor('STORAGE_DRIVER', { ...VALID, NODE_ENV: 'production' })).toEqual(['REQUIRED']);
+      expect(reasonsFor('STORAGE_DRIVER', { ...VALID, NODE_ENV: 'production', STORAGE_DRIVER: 'local' })).toEqual(['NOT_ALLOWED']);
+      expect(problemsOf({ ...VALID, NODE_ENV: 'production', ...S3 })).toEqual([]);
+    });
+
+    it('refuses an unknown driver', () => {
+      for (const value of ['gcs', 'S3', '', 5, null]) {
+        expect(reasonsFor('STORAGE_DRIVER', { ...VALID, STORAGE_DRIVER: value })).toEqual(['NOT_ALLOWED']);
+      }
+    });
+
+    it('s3 needs a bucket and a region', () => {
+      expect(reasonsFor('S3_BUCKET', { ...VALID, STORAGE_DRIVER: 's3', S3_REGION: 'ap-south-1' })).toEqual(['REQUIRED']);
+      expect(reasonsFor('S3_REGION', { ...VALID, STORAGE_DRIVER: 's3', S3_BUCKET: 'treeps-docs' })).toEqual(['REQUIRED']);
+    });
+
+    it('checks the shape of the bucket name and the region', () => {
+      for (const bucket of ['AB', 'Has_Upper', '-leading', 'trailing-', 'has space', 'x'.repeat(64), 5]) {
+        expect(reasonsFor('S3_BUCKET', { ...VALID, ...S3, S3_BUCKET: bucket })).toEqual(['INVALID_FORMAT']);
+      }
+      for (const region of ['Mumbai', 'ap_south_1', 'ap-south', 'us-east-100', 5]) {
+        expect(reasonsFor('S3_REGION', { ...VALID, ...S3, S3_REGION: region })).toEqual(['INVALID_FORMAT']);
+      }
+      for (const region of ['ap-south-1', 'us-east-1', 'eu-west-2', 'auto']) {
+        expect(reasonsFor('S3_REGION', { ...VALID, ...S3, S3_REGION: region })).toEqual([]);
+      }
+    });
+
+    it('the endpoint is optional, https only, and carries no password', () => {
+      expect(reasonsFor('S3_ENDPOINT', { ...VALID, ...S3 })).toEqual([]);
+      expect(reasonsFor('S3_ENDPOINT', { ...VALID, ...S3, S3_ENDPOINT: 'https://acct.r2.cloudflarestorage.com' })).toEqual([]);
+      for (const endpoint of ['http://insecure.example.com', 'https://user:pass@host.example.com', 'not a url', ' https://x.com', '']) {
+        expect(reasonsFor('S3_ENDPOINT', { ...VALID, ...S3, S3_ENDPOINT: endpoint })).toEqual(['INVALID_FORMAT']);
+      }
+    });
+
+    it('does not read the bucket settings when the folder is used', () => {
+      expect(problemsOf({ ...VALID, S3_BUCKET: 'NOT A BUCKET', S3_REGION: '???' })).toEqual([]);
+    });
+
+    it('never puts a value in the error', () => {
+      try {
+        validateEnv({ ...VALID, STORAGE_DRIVER: 's3', S3_BUCKET: 'Bad_Bucket_Name_Secret', S3_REGION: 'ap-south-1' });
+      } catch (error) {
+        expect((error as Error).message).toContain('S3_BUCKET (INVALID_FORMAT)');
+        expect((error as Error).message).not.toContain('Secret');
+      }
     });
   });
 

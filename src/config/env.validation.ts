@@ -6,6 +6,8 @@ export const DEFAULT_PORT = 3000;
 
 export const OTP_PROVIDERS = ['twofactor', 'fake'] as const;
 export type OtpProviderName = (typeof OTP_PROVIDERS)[number];
+export const STORAGE_DRIVERS = ['local', 's3'] as const;
+export type StorageDriverName = (typeof STORAGE_DRIVERS)[number];
 export const DEFAULT_TRUST_PROXY_HOPS = 0;
 export const MAX_TRUST_PROXY_HOPS = 10;
 export const DEFAULT_TERMS_VERSION = '2026-10-v1';
@@ -19,6 +21,10 @@ export interface ValidatedEnv {
   FAKE_OTP_CODE?: string; // only when OTP_PROVIDER is fake
   TWOFACTOR_API_KEY?: string; // only when OTP_PROVIDER is twofactor
   TWOFACTOR_TEMPLATE?: string; // only when OTP_PROVIDER is twofactor; optional, default OTP1
+  STORAGE_DRIVER: StorageDriverName; // local folder (default) or s3; production must be s3
+  S3_BUCKET?: string; // only when STORAGE_DRIVER is s3
+  S3_REGION?: string; // only when STORAGE_DRIVER is s3
+  S3_ENDPOINT?: string; // only when STORAGE_DRIVER is s3; optional, for S3-compatible services
   TRUST_PROXY_HOPS: number;
   TERMS_VERSION: string; // the terms the phone screen points to; stored with the rider's acceptance time
 }
@@ -121,6 +127,41 @@ function checkTwoFactorTemplate(raw: unknown): ReasonCode | undefined {
   return typeof raw === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(raw) ? undefined : 'INVALID_FORMAT';
 }
 
+// Local files are fine on a developer machine and nowhere else: a deployed disk can be wiped or lost,
+// and the photos are identity documents. So production must say s3 on purpose.
+function checkStorageDriver(raw: unknown, nodeEnv: unknown): { driver?: StorageDriverName; reason?: ReasonCode } {
+  if (raw === undefined) return nodeEnv === 'production' ? { reason: 'REQUIRED' } : { driver: 'local' };
+  if (typeof raw !== 'string' || !(STORAGE_DRIVERS as readonly string[]).includes(raw)) return { reason: 'NOT_ALLOWED' };
+  if (raw === 'local' && nodeEnv === 'production') return { reason: 'NOT_ALLOWED' };
+  return { driver: raw as StorageDriverName };
+}
+
+// A bucket name: 3 to 63 characters, lower-case letters, digits, dots and hyphens, starting and ending with a letter or digit.
+function checkS3Bucket(raw: unknown): ReasonCode | undefined {
+  if (isMissing(raw)) return 'REQUIRED';
+  return typeof raw === 'string' && /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(raw) ? undefined : 'INVALID_FORMAT';
+}
+
+// A region such as ap-south-1 (Mumbai); "auto" is what Cloudflare R2 uses.
+function checkS3Region(raw: unknown): ReasonCode | undefined {
+  if (isMissing(raw)) return 'REQUIRED';
+  return typeof raw === 'string' && (raw === 'auto' || /^[a-z]{2,3}(-[a-z]+)+-[0-9]{1,2}$/.test(raw))
+    ? undefined
+    : 'INVALID_FORMAT';
+}
+
+// Optional. An https address with no user name or password in it.
+function checkS3Endpoint(raw: unknown): ReasonCode | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw !== raw.trim() || hasControlCharacter(raw)) return 'INVALID_FORMAT';
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' ? undefined : 'INVALID_FORMAT';
+  } catch {
+    return 'INVALID_FORMAT';
+  }
+}
+
 function checkTrustProxyHops(raw: unknown): { hops?: number; reason?: ReasonCode } {
   if (raw === undefined) return { hops: DEFAULT_TRUST_PROXY_HOPS };
   if (typeof raw !== 'string' || !/^(0|[1-9][0-9]*)$/.test(raw)) {
@@ -164,6 +205,19 @@ export function validateEnv(
     if (template) problems.push({ variable: 'TWOFACTOR_TEMPLATE', reason: template });
   }
 
+  const storage = checkStorageDriver(config.STORAGE_DRIVER, config.NODE_ENV);
+  if (storage.reason) problems.push({ variable: 'STORAGE_DRIVER', reason: storage.reason });
+  // The bucket settings are checked only when s3 is selected. Credentials are not our setting: the
+  // AWS client reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (or the machine's role) itself.
+  if (config.STORAGE_DRIVER === 's3') {
+    const bucket = checkS3Bucket(config.S3_BUCKET);
+    if (bucket) problems.push({ variable: 'S3_BUCKET', reason: bucket });
+    const region = checkS3Region(config.S3_REGION);
+    if (region) problems.push({ variable: 'S3_REGION', reason: region });
+    const endpoint = checkS3Endpoint(config.S3_ENDPOINT);
+    if (endpoint) problems.push({ variable: 'S3_ENDPOINT', reason: endpoint });
+  }
+
   const hops = checkTrustProxyHops(config.TRUST_PROXY_HOPS);
   if (hops.reason) problems.push({ variable: 'TRUST_PROXY_HOPS', reason: hops.reason });
   const terms = checkTermsVersion(config.TERMS_VERSION);
@@ -176,6 +230,7 @@ export function validateEnv(
     PORT: port.port as number,
     NODE_ENV: config.NODE_ENV as NodeEnv,
     OTP_PROVIDER: config.OTP_PROVIDER as OtpProviderName,
+    STORAGE_DRIVER: storage.driver as StorageDriverName,
     TRUST_PROXY_HOPS: hops.hops as number,
     TERMS_VERSION: terms.version as string,
   };

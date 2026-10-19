@@ -1,0 +1,35 @@
+model DocumentRequirement {
+    id String @id @default(uuid())
+    type String @unique
+    enabled Boolean @default(true)
+    required Boolean @default(true)
+    options String[] @default([]) // the options the driver can pick
+    comingSoonOptions String[] @default([]) // shown to the app as COMING_SOON, not pickable
+    updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// One row per driver per onboarding step that has a document or a choice (VEHICLE, PERSONAL_IDENTITY,
+// DRIVING_LICENCE, VEHICLE_NUMBER, PERMIT, CAB_INSURANCE, FITNESS). PERSONAL_INFO lives on Driver.
+// The photos are kept as storage PATHS, never as URLs. number can be an Aadhaar number (decision 187).
+model DriverDocument {
+  id         String         @id @default(uuid())
+  driverId   String
+  driver     Driver         @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  key        String // The step key, for example DRIVING_LICENCE
+  option     String? // The choice, for example PAN_CARD
+  number     String? // Sensitive: never logged, never returned to the app
+  expiryDate DateTime?      @db.Date
+  frontPath  String?
+  backPath   String?
+  status     DocumentStatus @default(PENDING)
+  reviewNote String? // The admin's reason when a step is rejected or sent back
+  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@unique([driverId, key])
+}

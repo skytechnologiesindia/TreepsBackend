@@ -101,6 +101,41 @@ Docs updated, **code not changed, owner approval pending**: `api/rider-verify-ot
 - [ ] Cleanup of device rows (and tokens) left behind by expired or banned sessions (TO DECIDE)
 - [ ] Later: drop the unused `revokedAt` column and rename the two tables to `Session` / `DriverSession` (migration, TO DECIDE); a cache inside `SessionService`; cleanup of expired session rows (TO DECIDE)
 
+### Driver onboarding (2026-10-16, decisions 185 to 187)
+- [x] `GET /v1/driver/documents/requirements` built: `{ steps: [{ key, required, options? }] }` from the table `DocumentRequirement`; rate limit 120 an hour per IP; doc `api/driver/driver-document-requirements.md`
+- [x] `POST /v1/driver/onboarding` built: one multipart request (`data` JSON plus photo parts), checks first, then stores photos, then one transaction; failed save deletes the photos; driver goes `DOCUMENTS_PENDING` to `UNDER_REVIEW`; doc `api/driver/driver-onboarding-submit.md`
+- [x] Migrations `20261012120000_add_document_requirement`, `20261016140000_document_requirement_steps`, `20261016150000_driver_onboarding` applied to `treeps_db` (backups `treeps_db-backup-2026-10-12.dump`, `-2026-10-16.dump`, `-2026-10-16-onboarding.dump`); the 8 steps are rows in `DocumentRequirement`
+- [x] Local file storage (`src/common/storage/`, folder `storage/`, in `.gitignore`); `@types/multer` added as a dev dependency
+- [x] Tests: 35 new (HTTP, calendar date) plus 5 on real Postgres; whole suite passes
+- [ ] Not built: admin review (queue, approve, reject, send back, photo links), notifications, S3 storage, `GET /v1/driver/me`, `GET /v1/driver/documents` (status per step)
+- [ ] TO DECIDE: legal check of storing the full Aadhaar number (decision 187); `BIKE` and `AUTO` in the `VEHICLE` options (launch is cars only); expiry date for `VEHICLE_NUMBER`; real number formats; age and expiry limits
+
+### Admin: login and driver submissions (2026-10-16, decision 188)
+- [x] `POST /v1/admin/auth/login` built (email + password, `Admin` and `AdminSession` tables, scrypt, one session per admin, 10 tries an hour per IP); admins are made only by `npm run admin:create -- <email> <name words>`
+- [x] `GET /v1/admin/driver-submissions` (counts per status, filter, paging) and `GET /v1/admin/driver-submissions/:driverId` (everything typed plus every photo as base64) built, read-only; driver or rider token gives 403
+- [x] `read(path)` added to the storage class
+- [x] Tests: 18 new, on real Postgres (`RUN_PG_TESTS=1`, scratch database `treeps_scratch_admin`); plus a full live simulation (6 drivers submitting, admin reading all of it back, byte-for-byte photo check) that passed 48 of 48 on the scratch database `treeps_scratch_onboarding`
+- [ ] **Migration `20261016170000_admin` is NOT applied to `treeps_db`** (needs a backup and the owner's go-ahead). Until then the admin routes fail on the real database
+- [ ] Not built: approve, reject with note, send back; notifications; a separate admin photo route; admin audit table
+- [ ] TO DECIDE: scrypt versus argon2/bcrypt; password rule; admin rate limits; page size; a per-email login limit (the rate limiter supports IP and phone only)
+
+### Photo storage on S3 (2026-10-16, decision 189)
+- [x] `S3FileStorage` (`src/common/storage/s3-file-storage.ts`): same `save`, `read`, `delete` as the local folder; encrypted at rest, never overwrites; `@aws-sdk/client-s3` added
+- [x] `STORAGE_DRIVER` (`local` or `s3`), `S3_BUCKET`, `S3_REGION`, optional `S3_ENDPOINT`; production refuses `local`; `.env.example` and `input-validation.md` section 6 updated
+- [x] Startup check of the bucket with a fixed, secret-free message; `npm run storage:check` for a save, read and delete round trip
+- [x] Tests: the S3 class against a fake bucket, the startup check, the new settings
+- [ ] **Owner:** create the bucket (private, versioning on, `ap-south-1`), an access key for that bucket only, put the settings in `.env`, then run `npm run storage:check`
+- [ ] Not tested against a real bucket yet
+- [ ] TO DECIDE: how long photos may be kept (part of the Aadhaar legal check)
+
+### Driver me (2026-10-16)
+- [x] `GET /v1/driver/me` built: `driver` (same as verify-otp), `nextStep` (`SUBMIT_DOCUMENTS`, `FIX_DOCUMENTS`, `WAIT_FOR_REVIEW`, `READY`, `REJECTED`) and `documents` (key, status, review note only); 600 an hour per IP (proposal); 12 tests
+
+### Coming-soon options (2026-10-18, decision 190)
+- [x] Requirements options are `{ value, status }` (`AVAILABLE` or `COMING_SOON`); column `comingSoonOptions`; submit refuses a coming-soon option
+- [x] Applied to `treeps_db` (backup `treeps_db-backup-2026-10-18-coming-soon.dump`): `VEHICLE` = CAR available, BIKE and AUTO coming soon
+- [x] Tests updated and added (shape, order, both columns, unknown values, submit refusal, real Postgres)
+
 ## L0 checklist
 The owner typed the code. Step 1 was a read-only orientation.
 - [x] Step 2: L0 section written in `api/estimate.md`

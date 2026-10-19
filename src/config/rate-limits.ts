@@ -22,4 +22,15 @@ export const RATE_LIMITS = {
   register: { ip: { limit: 10, windowMs: HOUR_MS } },
   // docs/api/rider-logout.md and driver-logout.md (decision 137)
   logout: { ip: { limit: 120, windowMs: HOUR_MS } },
+
+  // docs/api/driver/driver-document-requirements.md
+  documentRequirements: { ip: { limit: 120, windowMs: HOUR_MS } },
+  // docs/api/driver/driver-onboarding-submit.md
+  onboardingSubmit: { ip: { limit: 10, windowMs: HOUR_MS } },
+  // docs/api/driver/driver-me.md (proposal, TO DECIDE; high because many phones share one mobile IP)
+  driverMe: { ip: { limit: 600, windowMs: HOUR_MS } },
+  // docs/api/admin/admin-login.md (proposal, TO DECIDE)
+  adminLogin: { ip: { limit: 10, windowMs: HOUR_MS } },
+  // docs/api/admin/admin-driver-submissions.md (proposal, TO DECIDE)
+  adminDriverSubmissions: { ip: { limit: 600, windowMs: HOUR_MS } },
 } as const;

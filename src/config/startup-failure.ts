@@ -1,6 +1,7 @@
 import { RouteInputsError } from '../common/validation/route-inputs.js';
 import { DatabaseCheckError } from './database-check.js';
 import { EnvConfigError } from './env.validation.js';
+import { StorageCheckError } from './storage-check.js';
 
 export const STARTUP_FAILED_LINE = 'Startup failed. See server logs for details.';
 
@@ -11,6 +12,7 @@ export const STARTUP_FAILED_LINE = 'Startup failed. See server logs for details.
 export function describeStartupFailure(error: unknown): string {
   return error instanceof EnvConfigError ||
     error instanceof DatabaseCheckError ||
+    error instanceof StorageCheckError ||
     error instanceof RouteInputsError
     ? error.message
     : STARTUP_FAILED_LINE;

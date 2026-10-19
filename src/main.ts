@@ -3,7 +3,9 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { setupApp } from './common/setup-app.js';
 import { assertRouteInputs } from './common/validation/route-inputs.js';
+import { FILE_STORAGE } from './common/storage/file-storage.js';
 import { assertDatabaseReachable } from './config/database-check.js';
+import { assertStorageReachable } from './config/storage-check.js';
 import type { ValidatedEnv } from './config/env.validation.js';
 import { refuseToStart } from './config/startup-failure.js';
 
@@ -18,6 +20,7 @@ async function bootstrap() {
   assertRouteInputs(app);
   const config = app.get<ConfigService<ValidatedEnv, true>>(ConfigService);
   await assertDatabaseReachable(config.get('DATABASE_URL', { infer: true }));
+  await assertStorageReachable(app.get(FILE_STORAGE, { strict: false }));
   await app.listen(config.get('PORT', { infer: true }));
 }
 await bootstrap().catch((error) => refuseToStart(error));

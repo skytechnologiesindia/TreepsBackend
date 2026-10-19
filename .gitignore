@@ -35,3 +35,6 @@ Thumbs.db
 
 # Claude Code project folder (local tooling, not part of the app)
 /.claude/
+
+# Local photo storage for development (decision 186)
+/storage/
